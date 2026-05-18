@@ -1,5 +1,6 @@
 #include <network/TcpSocket.h>
 
+#include <iostream>
 #include <cerrno>
 #include <cstring>
 #include <stdexcept>
@@ -120,6 +121,10 @@ void TcpSocket::closeSocket() {
         close(_socketFd);
         _socketFd = -1;
     }
+}
+
+void TcpSocket::printAddress(const string& connectionSide) {
+    cout << "[ADRES IP " << connectionSide << "] " << _remoteIP << ":" << _remotePort << endl;
 }
 
 int TcpSocket::getSocketFd() {

@@ -23,6 +23,8 @@ public:
 
     void closeSocket();
 
+    void printAddress(const std::string& connectionSide);
+
     int getSocketFd();
     bool isSocketValid();
 };

@@ -3,10 +3,13 @@
 #include <iostream>
 #include <exception>
 #include <string>
+#include <unistd.h>
 
 using namespace std;
 
 int main() {
+    signal(SIGCHLD, SIG_IGN);
+
     try {
         TcpSocket server;
 
@@ -15,24 +18,38 @@ int main() {
 
         cout << "[SERWER] Nasłuchuje na porcie 8080..." << endl;
 
-        TcpSocket client = server.acceptConnection();
+        while (true) {
+            TcpSocket client = server.acceptConnection();
 
-        cout << "[SERWER] Klient uzyskał połączenie" << endl;
+            pid_t pid = fork();
 
-        string message = client.receiveData(4096);
+            if (pid < 0) {
+                throw runtime_error("Nie udało się utworzyć procesu");
+            }
 
-        cout << "[SERWER] Otrzymano wiadomość: " << message << endl;
+            if (pid == 0) {
+                server.closeSocket();
 
-        string response = "PONG od serwera";
+                cout << "[SERWER] Klient uzyskał połączenie" << endl;
+                client.printAddress("KLIENTA");
+                string message = client.receiveData(4096);
+                cout << "[SERWER] Otrzymano wiadomość: " << message << endl;
+                string response = "PONG od serwera";
 
-        client.sendData(response);
+                client.sendData(response);
 
-        cout << "[SERWER] Wysłano wiadomość" << endl;
+                cout << "[SERWER] Wysłano wiadomość" << endl;
+
+                return 0;
+            }
+
+            client.closeSocket();
+        }
 
     } catch (const exception& e) {
         cerr << "[SERWER] Błąd: "<< e.what() << endl;
+        return 1;
     }
-
 
     return 0;
 }
