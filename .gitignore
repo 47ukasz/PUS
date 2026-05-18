@@ -1,0 +1,87 @@
+# =========================
+# Build directories
+# =========================
+build/
+cmake-build-debug/
+cmake-build-release/
+out/
+
+# =========================
+# CMake
+# =========================
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+compile_commands.json
+CTestTestfile.cmake
+Testing/
+
+# =========================
+# Binaries
+# =========================
+*.exe
+*.out
+*.app
+
+# Linux
+*.so
+
+# macOS
+*.dylib
+
+# Windows
+*.dll
+*.lib
+
+# Object files
+*.o
+*.obj
+
+# Static libraries
+*.a
+
+# =========================
+# Debug symbols
+# =========================
+*.dSYM/
+*.pdb
+
+# =========================
+# Logs
+# =========================
+*.log
+
+# =========================
+# IDEs
+# =========================
+
+# CLion
+.idea/
+
+# VSCode
+.vscode/
+
+# Visual Studio
+.vs/
+
+# =========================
+# OS files
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# OpenSSL / certificates
+# =========================
+certs/*.key
+certs/*.pem
+certs/*.crt
+certs/*.csr
+certs/*.srl
+
+# =========================
+# Temporary files
+# =========================
+*.tmp
+*.temp
