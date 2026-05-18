@@ -57,7 +57,7 @@ Testing/
 # =========================
 
 # CLion
-.idea/
+.idea
 
 # VSCode
 .vscode/
@@ -70,6 +70,7 @@ Testing/
 # =========================
 .DS_Store
 Thumbs.db
+
 
 # =========================
 # OpenSSL / certificates
