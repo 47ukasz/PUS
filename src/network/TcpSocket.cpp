@@ -15,13 +15,13 @@ using namespace std;
 
 TcpSocket::TcpSocket() : _socketFd(socket(AF_INET, SOCK_STREAM, 0)) {
     if (_socketFd < 0) {
-        throw std::runtime_error(std::strerror(errno));
+        throw runtime_error(strerror(errno));
     }
 }
 
 TcpSocket::TcpSocket(int socketFd) : _socketFd(socketFd) {}
 
-TcpSocket::TcpSocket(int socketFd, std::string remoteIP, int remotePort) : _socketFd(socketFd), _remoteIP(remoteIP), _remotePort(remotePort) {}
+TcpSocket::TcpSocket(int socketFd, string remoteIP, int remotePort) : _socketFd(socketFd), _remoteIP(remoteIP), _remotePort(remotePort) {}
 
 TcpSocket::~TcpSocket() {
     closeSocket();
@@ -88,7 +88,7 @@ TcpSocket TcpSocket::acceptConnection() {
     return TcpSocket(clientFd, clientIp, clientPort);
 }
 
-void TcpSocket::sendData(std::string &data) {
+void TcpSocket::sendData(string &data) {
     int returnValue = 0;
 
     returnValue = send(_socketFd, data.c_str(), data.size(), 0);
@@ -98,7 +98,7 @@ void TcpSocket::sendData(std::string &data) {
     }
 }
 
-std::string TcpSocket::receiveData(size_t bufferSize) {
+string TcpSocket::receiveData(size_t bufferSize) {
     string buffer(bufferSize, '\0');
     int returnValue = 0;
 
