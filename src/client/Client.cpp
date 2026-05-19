@@ -1,6 +1,7 @@
 #include <client/Client.h>
 #include <network/TlsConnection.h>
 #include <protocol/Message.h>
+#include <client/CommandMapper.h>
 #include <protocol/JsonCoder.h>
 
 #include <iostream>
@@ -23,32 +24,60 @@ SSL_CTX *Client::createClientContext() {
 
 Client::Client(string host, int port) : _host(host), _port(port) {}
 
+Client::~Client() {
+    if (_ctx) {
+        SSL_CTX_free(_ctx);
+        _ctx = nullptr;
+    }
+}
+
 void Client::connect() {
     SSL_library_init();
     SSL_load_error_strings();
 
-    SSL_CTX *ctx = createClientContext();
+    _ctx = createClientContext();
 
     _socket.connectTo(_host, _port);
 
-    cout << "[KLIENT] Uzyskano połączenie TCP z serwerem(" << _host << ":" << _port << ")" << endl;
+    _tls = make_unique<TlsConnection>(_ctx, _socket.getSocketFd());;
+    _tls->connectTls();
 
-    TlsConnection client_tls(ctx, _socket.getSocketFd());
-    client_tls.connectTls();
+    cout << "[KLIENT] Uzyskano szyfrowane połączenie TLS [" << _host << ":" << _port << "]" << endl;
+}
 
-    cout << "[KLIENT] Uzyskano szyfrowane połączenie TLS" << endl;
+void Client::run() {
+    connect();
+    cout << "Dostępne komendy: login, attach, detach, status, stats, reset, ping, exit" << endl;
+    string commandLine;
 
-    Message msg {MessageType::PING, "1", time(nullptr), "1231", {"text", "PING"}};
-    string message = JsonCoder::serialize(msg);
+    while (true) {
+        cout << "ncp> ";
 
-    client_tls.sendData(message);
+        if (!getline(cin, commandLine)) {
+            break;
+        }
 
-    cout << "[KLIENT] Wysłano wiadomość" << endl;
+        if (commandLine.empty()) {
+            continue;
+        }
 
-    string response = client_tls.receiveData(4096);
-    Message responseMsg = JsonCoder::deserialize(response);
+        handleCommand(commandLine);
+    }
+}
 
-    cout << "[KLIENT] Otrzymano wiadomość: " << responseMsg._payload.dump() << endl;
+void Client::handleCommand(string &command) {
+    Message message = CommandMapper::mapToMessage(command);
 
-    SSL_CTX_free(ctx);
+    string rawMessage = JsonCoder::serialize(message);
+    _tls->sendData(rawMessage);
+
+    if (message._type == MessageType::BYE) {
+        cout << "[KLIENT] Zamykanie klienta" << endl;
+        exit(EXIT_SUCCESS); // tymczasowo bo potem w to miejsce trzeba bedzie normalnie wsadzic rozlaczenie z serwerem i wyslanie komunikatu
+    }
+
+    string rawResponse = _tls->receiveData(4096);
+    Message response = JsonCoder::deserialize(rawResponse);
+
+    cout << "[KLIENT] Odpowiedź serwera: " << response._payload.dump() << endl;
 }

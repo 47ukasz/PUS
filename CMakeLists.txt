@@ -22,6 +22,7 @@ add_executable(ncp_server
         src/network/TcpSocket.cpp
         src/network/TlsConnection.cpp
         src/protocol/JsonCoder.cpp
+        src/client/CommandMapper.cpp
 )
 
 target_include_directories(ncp_server
@@ -36,6 +37,7 @@ add_executable(ncp_client
         src/network/TcpSocket.cpp
         src/network/TlsConnection.cpp
         src/protocol/JsonCoder.cpp
+        src/client/CommandMapper.cpp
 )
 
 target_include_directories(ncp_client

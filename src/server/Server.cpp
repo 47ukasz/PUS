@@ -39,7 +39,7 @@ void Server::start() {
     SSL_library_init();
     SSL_load_error_strings();
 
-    SSL_CTX *ctx = Server::createServerContext();
+    SSL_CTX *ctx = createServerContext();
 
     _socket.bindTo(_port);
     _socket.listenForConnections(_backlog);
