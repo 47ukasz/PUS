@@ -1,12 +1,14 @@
+#include "client/Client.h"
 #include <network/TcpSocket.h>
+#include <protocol/Message.h>
+#include <protocol/JsonCoder.h>
 
 #include <iostream>
 #include <exception>
 #include <string>
 
-#include "client/Client.h"
-
 using namespace std;
+using namespace models;
 
 int main() {
     try {

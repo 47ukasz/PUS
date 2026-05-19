@@ -1,0 +1,30 @@
+#ifndef NCP_MESSAGE_H
+#define NCP_MESSAGE_H
+#include <string>
+#include <nlohmann/json.hpp>
+
+#include "MessageType.h"
+
+namespace models {
+    struct Message {
+        MessageType _type;
+        std::string _message_id;
+        time_t _timestamp;
+        std::string _session_token;
+        nlohmann::json _payload;
+    };
+
+    inline void to_json(nlohmann::json &j, const Message &m) {
+        j = nlohmann::json{{"type", m._type}, {"message_id", m._message_id}, {"timestamp", m._timestamp}, {"session_token", m._session_token}, {"payload", m._payload}};
+    }
+
+    inline void from_json(const nlohmann::json &j, Message &m) {
+        j.at("type").get_to(m._type);
+        j.at("message_id").get_to(m._message_id);
+        j.at("timestamp").get_to(m._timestamp);
+        j.at("session_token").get_to(m._session_token);
+        j.at("payload").get_to(m._payload);
+    }
+}
+
+#endif //NCP_MESSAGE_H

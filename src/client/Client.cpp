@@ -1,9 +1,12 @@
 #include <client/Client.h>
 #include <network/TlsConnection.h>
+#include <protocol/Message.h>
+#include <protocol/JsonCoder.h>
 
 #include <iostream>
 #include <stdexcept>
 
+using namespace models;
 using namespace std;
 
 SSL_CTX *Client::createClientContext() {
@@ -35,14 +38,17 @@ void Client::connect() {
 
     cout << "[KLIENT] Uzyskano szyfrowane połączenie TLS" << endl;
 
-    string message = "PING od klienta";
+    Message msg {MessageType::PING, "1", time(nullptr), "1231", {"text", "PING"}};
+    string message = JsonCoder::serialize(msg);
+
     client_tls.sendData(message);
 
     cout << "[KLIENT] Wysłano wiadomość" << endl;
 
     string response = client_tls.receiveData(4096);
+    Message responseMsg = JsonCoder::deserialize(response);
 
-    cout << "[KLIENT] Otrzymano wiadomość: " << response << endl;
+    cout << "[KLIENT] Otrzymano wiadomość: " << responseMsg._payload.dump() << endl;
 
     SSL_CTX_free(ctx);
 }

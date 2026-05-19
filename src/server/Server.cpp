@@ -1,5 +1,6 @@
 #include <server/Server.h>
 #include <network/TlsConnection.h>
+#include <protocol/Message.h>
 
 #include <openssl/ssl.h>
 
@@ -8,7 +9,10 @@
 #include <string>
 #include <unistd.h>
 
+#include "protocol/JsonCoder.h"
+
 using namespace std;
+using namespace models;
 
 SSL_CTX *Server::createServerContext() {
     SSL_CTX *ctx = SSL_CTX_new(TLS_server_method());
@@ -70,11 +74,18 @@ void Server::start() {
 
 void Server::handleClient(TlsConnection &client) {
     cout << "[SERWER] Klient uzyskał połączenie TLS" << endl;
+
     string message = client.receiveData(4096);
-    cout << "[SERWER] Otrzymano wiadomość: " << message << endl;
+    Message msg = JsonCoder::deserialize(message);
 
-    string response = "PONG od serwera";
-    client.sendData(response);
+    if (msg._type == MessageType::PING) {
+        cout << "[SERWER] Odebrano PING" << endl;
 
-    cout << "[SERWER] Wysłano wiadomość" << endl;
+        Message response {MessageType::PONG,msg._message_id,time(nullptr),msg._session_token,{{"text", "PONG"}}};
+
+        string responseRaw = JsonCoder::serialize(response);
+
+        cout << "[SERWER] Wysłano wiadomość" << endl;
+        client.sendData(responseRaw);
+    }
 }
