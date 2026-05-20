@@ -26,6 +26,7 @@ Message CommandMapper::mapToMessage(string cli) {
 
     Message message{};
     message._timestamp = time(nullptr);
+    message._message_id = generateMessageId();
 
     string command = tokens[0];
 
@@ -43,7 +44,7 @@ Message CommandMapper::mapToMessage(string cli) {
         }
 
         message._type = MessageType::AUTH;
-        message._payload = {{"username", tokens[1]}, {"password", tokens[2]}};
+        message._payload = {{"login", tokens[1]}, {"password", tokens[2]}};
 
     } else if (command == "attach") {
         if (tokens.size() != 2) {

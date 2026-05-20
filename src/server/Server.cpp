@@ -10,6 +10,7 @@
 #include <unistd.h>
 
 #include "protocol/JsonCoder.h"
+#include "server/RequestHandler.h"
 
 using namespace std;
 using namespace models;
@@ -75,17 +76,14 @@ void Server::start() {
 void Server::handleClient(TlsConnection &client) {
     cout << "[SERWER] Klient uzyskał połączenie TLS" << endl;
 
-    string message = client.receiveData(4096);
-    Message msg = JsonCoder::deserialize(message);
+    cout << "[SERWER] Odebrano komunikat" << endl;
+    string rawRequest = client.receiveData(4096);
+    Message request = JsonCoder::deserialize(rawRequest);
 
-    if (msg._type == MessageType::PING) {
-        cout << "[SERWER] Odebrano PING" << endl;
+    Message response = RequestHandler::handleRequest(request);
 
-        Message response {MessageType::PONG,msg._message_id,time(nullptr),msg._session_token,{{"text", "PONG"}}};
+    string rawResponse = JsonCoder::serialize(response);
 
-        string responseRaw = JsonCoder::serialize(response);
-
-        cout << "[SERWER] Wysłano wiadomość" << endl;
-        client.sendData(responseRaw);
-    }
+    cout << "[SERWER] Wysłano wiadomość" << endl;
+    client.sendData(rawResponse);
 }
