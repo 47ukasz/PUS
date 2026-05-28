@@ -19,12 +19,22 @@ namespace models {
     }
 
     inline void from_json(const nlohmann::json &j, Message &m) {
-        j.at("type").get_to(m._type);
-        j.at("message_id").get_to(m._message_id);
-        j.at("timestamp").get_to(m._timestamp);
+    j.at("type").get_to(m._type);
+    j.at("message_id").get_to(m._message_id);
+    j.at("timestamp").get_to(m._timestamp);
+
+    if (j.contains("session_token") && !j.at("session_token").is_null()) {
         j.at("session_token").get_to(m._session_token);
-        j.at("payload").get_to(m._payload);
+    } else {
+        m._session_token = "";
     }
+
+    if (j.contains("payload") && !j.at("payload").is_null()) {
+        j.at("payload").get_to(m._payload);
+    } else {
+        m._payload = nlohmann::json::object();
+    }
+}
 }
 
 #endif //NCP_MESSAGE_H

@@ -3,70 +3,94 @@
 
 #include <ctime>
 #include <string>
+#include <stdexcept>
 
 using namespace models;
 using namespace std;
 
-Message RequestHandler::handleRequest(Message& request) {
+Message RequestHandler::handleRequest(Message& request, Session& session) {
     try {
         MessageValidator::validate(request);
 
         switch (request._type) {
-            case MessageType::PING:
-                return makeResponse(request, MessageType::PONG,{{"message", "PONG od serwera"}});
+            case MessageType::HELLO: {
+                session.helloDone = true;
 
-            case MessageType::AUTH:
-                return makeResponse(request, MessageType::AUTH_OK,{{"session_token", "temporary-token"}});
+                return makeResponse(request, MessageType::ACK, {
+                    {"status", "HELLO_ACCEPTED"}
+                });
+            }
 
-            case MessageType::ATTACH:
-                return makeResponse(request, MessageType::ACK,{
-                        {"operation", "ATTACH"},
-                        {"ue_id", request._payload.at("ue_id")},
-                        {"status", "attached"}
-                    }
-                );
+            case MessageType::AUTH: {
+                if (!session.helloDone) {
+                    return makeError(request, "INVALID_STATE", "HELLO must be sent before AUTH.");
+                }
 
-            case MessageType::DETACH:
-                return makeResponse(request, MessageType::ACK,{
-                        {"operation", "DETACH"},
-                        {"ue_id", request._payload.at("ue_id")},
-                        {"status", "detached"}
-                    }
-                );
+                string login = request._payload.at("login");
+                string password = request._payload.at("password");
 
-            case MessageType::STATUS:
-                return makeResponse(request, MessageType::RESULT,{
-                        {"ue_id", request._payload.at("ue_id")},
-                        {"state", "CONNECTED"}
-                    }
-                );
+                if (login == "admin" && password == "admin") {
+                    session.authenticated = true;
+                    session.sessionToken = generateSessionToken();
 
-            case MessageType::GET_STATS:
-                return makeResponse(request, MessageType::RESULT,{
-                        {"connected_ues", 1},
-                        {"total_requests", 0}
-                    }
-                );
+                    return makeResponse(request, MessageType::AUTH_OK, {
+                        {"session_token", session.sessionToken}
+                    });
+                }
 
-            case MessageType::RESET_SIM:
-                return makeResponse(request, MessageType::ACK,{{"status", "simulation_reset"}});
+                return makeResponse(request, MessageType::AUTH_FAIL, {
+                    {"message", "Invalid login or password"}
+                });
+            }
 
-            case MessageType::BYE:
-                return makeResponse(request, MessageType::ACK,{{"message", "connection_closed"}});
+            case MessageType::BYE: {
+                session.active = false;
+
+                return makeResponse(request, MessageType::ACK, {
+                    {"status", "SESSION_CLOSED"}
+                });
+            }
+
+            case MessageType::PING: {
+                if (!session.authenticated) {
+                    return makeError(request, "UNAUTHORIZED", "Operation requires authentication.");
+                }
+
+                if (request._session_token != session.sessionToken) {
+                    return makeError(request, "UNAUTHORIZED", "Invalid session token.");
+                }
+
+                return makeResponse(request, MessageType::PONG, {
+                    {"message", "PONG od serwera"}
+                });
+            }
 
             default:
-                return makeError(request, "Nieobsługiwany typ wiadomości.");
+                return makeError(request, "INVALID_STATE", "This operation is not available in stage 1.");
         }
 
     } catch (const exception& e) {
-        return makeError(request, e.what());
+        return makeError(request, "INVALID_FORMAT", e.what());
     }
 }
 
 Message RequestHandler::makeResponse(Message& request, MessageType type, nlohmann::json payload) {
-    return Message{type,request._message_id,time(nullptr),request._session_token, payload};
+    return Message{type, request._message_id, time(nullptr), request._session_token, payload};
 }
 
-Message RequestHandler::makeError(Message& request, string errorMessage) {
-    return Message{MessageType::ERROR,request._message_id,time(nullptr),request._session_token,{{"error", errorMessage}}};
+Message RequestHandler::makeError(Message& request, string errorCode, string errorMessage) {
+    return Message{
+        MessageType::ERROR,
+        request._message_id,
+        time(nullptr),
+        request._session_token,
+        {
+            {"error_code", errorCode},
+            {"error_message", errorMessage}
+        }
+    };
+}
+
+string RequestHandler::generateSessionToken() {
+    return "token_" + to_string(time(nullptr));
 }

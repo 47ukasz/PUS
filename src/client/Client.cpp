@@ -6,6 +6,7 @@
 
 #include <iostream>
 #include <stdexcept>
+#include <sstream>
 
 using namespace models;
 using namespace std;
@@ -31,23 +32,34 @@ Client::~Client() {
     }
 }
 
-void Client::connect() {
+void Client::connectToServer(const string& host, int port) {
+    if (_connected) {
+        cout << "[KLIENT] Połączenie jest już aktywne." << endl;
+        return;
+    }
+
     SSL_library_init();
     SSL_load_error_strings();
 
+    _host = host;
+    _port = port;
+
     _ctx = createClientContext();
 
-    _socket.connectTo(_host, _port);
+    string hostCopy = _host;
+    _socket.connectTo(hostCopy, _port);
 
-    _tls = make_unique<TlsConnection>(_ctx, _socket.getSocketFd());;
+    _tls = make_unique<TlsConnection>(_ctx, _socket.getSocketFd());
     _tls->connectTls();
+
+    _connected = true;
 
     cout << "[KLIENT] Uzyskano szyfrowane połączenie TLS [" << _host << ":" << _port << "]" << endl;
 }
 
 void Client::run() {
-    connect();
-    cout << "Dostępne komendy: login, attach, detach, status, stats, reset, ping, exit" << endl;
+    cout << "Dostępne komendy: connect <host> <port>, login <user> <password>, ping, exit" << endl;
+
     string commandLine;
 
     while (true) {
@@ -61,23 +73,80 @@ void Client::run() {
             continue;
         }
 
-        handleCommand(commandLine);
+        try {
+            handleCommand(commandLine);
+        } catch (const exception& e) {
+            cout << "[KLIENT] Błąd: " << e.what() << endl;
+        }
     }
 }
 
 void Client::handleCommand(string &command) {
+    if (command.rfind("connect ", 0) == 0) {
+        istringstream iss(command);
+        string cmd;
+        string host;
+        int port;
+
+        iss >> cmd >> host >> port;
+
+        if (host.empty() || port <= 0) {
+            throw runtime_error("Użycie: connect <host> <port>");
+        }
+
+        connectToServer(host, port);
+
+        Message hello = CommandMapper::mapToMessage(command);
+        sendAndPrintResponse(hello);
+        return;
+    }
+
+    if (command == "exit" && !_connected) {
+        cout << "[KLIENT] Zamykanie klienta." << endl;
+        exit(EXIT_SUCCESS);
+    }
+
+    if (!_connected) {
+        cout << "[KLIENT] Najpierw połącz się z serwerem: connect <host> <port>" << endl;
+        return;
+    }
+
     Message message = CommandMapper::mapToMessage(command);
 
-    string rawMessage = JsonCoder::serialize(message);
-    _tls->sendData(rawMessage);
+    if (_authenticated && message._type != MessageType::AUTH) {
+        message._session_token = _sessionToken;
+    }
+
+    sendAndPrintResponse(message);
 
     if (message._type == MessageType::BYE) {
-        cout << "[KLIENT] Zamykanie klienta" << endl;
-        exit(EXIT_SUCCESS); // tymczasowo bo potem w to miejsce trzeba bedzie normalnie wsadzic rozlaczenie z serwerem i wyslanie komunikatu
+        cout << "[KLIENT] Zamykanie klienta." << endl;
+        exit(EXIT_SUCCESS);
     }
+}
+
+void Client::sendAndPrintResponse(Message& message) {
+    string rawMessage = JsonCoder::serialize(message);
+    _tls->sendData(rawMessage);
 
     string rawResponse = _tls->receiveData(4096);
     Message response = JsonCoder::deserialize(rawResponse);
 
-    cout << "[KLIENT] Odpowiedź serwera: " << response._payload.dump() << endl;
+    cout << "[KLIENT] Odpowiedź serwera: " << rawResponse << endl;
+
+    if (response._type == MessageType::AUTH_OK) {
+        if (response._payload.contains("session_token")) {
+            _sessionToken = response._payload.at("session_token");
+            _authenticated = true;
+
+            cout << "[KLIENT] Zalogowano poprawnie. Token sesji zapisany." << endl;
+        }
+    }
+
+    if (response._type == MessageType::AUTH_FAIL) {
+        _authenticated = false;
+        _sessionToken.clear();
+
+        cout << "[KLIENT] Logowanie nieudane." << endl;
+    }
 }

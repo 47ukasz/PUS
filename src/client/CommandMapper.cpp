@@ -1,5 +1,11 @@
 #include <client/CommandMapper.h>
 
+#include <ctime>
+#include <sstream>
+#include <stdexcept>
+#include <string>
+#include <vector>
+
 using namespace std;
 using namespace models;
 
@@ -36,7 +42,7 @@ Message CommandMapper::mapToMessage(string cli) {
         }
 
         message._type = MessageType::HELLO;
-        message._payload = {{"host", tokens[1]},{"port", stoi(tokens[2])}};
+        message._payload = {{"client_id", "client_01"}};
 
     } else if (command == "login") {
         if (tokens.size() != 3) {

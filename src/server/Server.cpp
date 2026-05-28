@@ -6,6 +6,7 @@
 
 #include <iostream>
 #include <stdexcept>
+#include <csignal>
 #include <string>
 #include <unistd.h>
 
@@ -76,14 +77,35 @@ void Server::start() {
 void Server::handleClient(TlsConnection &client) {
     cout << "[SERWER] Klient uzyskał połączenie TLS" << endl;
 
-    cout << "[SERWER] Odebrano komunikat" << endl;
-    string rawRequest = client.receiveData(4096);
-    Message request = JsonCoder::deserialize(rawRequest);
+    Session session{};
 
-    Message response = RequestHandler::handleRequest(request);
+    while (session.active) {
+        try {
+            string rawRequest = client.receiveData(4096);
 
-    string rawResponse = JsonCoder::serialize(response);
+            if (rawRequest.empty()) {
+                cout << "[SERWER] Klient zamknął połączenie" << endl;
+                break;
+            }
 
-    cout << "[SERWER] Wysłano wiadomość" << endl;
-    client.sendData(rawResponse);
+            cout << "[SERWER] Odebrano komunikat: " << rawRequest << endl;
+
+            Message request = JsonCoder::deserialize(rawRequest);
+            Message response = RequestHandler::handleRequest(request, session);
+
+            string rawResponse = JsonCoder::serialize(response);
+
+            cout << "[SERWER] Wysłano odpowiedź: " << rawResponse << endl;
+            client.sendData(rawResponse);
+
+            if (request._type == MessageType::BYE) {
+                cout << "[SERWER] Sesja zakończona przez klienta" << endl;
+                break;
+            }
+
+        } catch (const exception& e) {
+            cout << "[SERWER] Błąd obsługi klienta: " << e.what() << endl;
+            break;
+        }
+    }
 }

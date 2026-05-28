@@ -4,6 +4,15 @@
 #include <network/TcpSocket.h>
 #include <network/TlsConnection.h>
 
+#include <string>
+
+struct Session {
+    bool helloDone = false;
+    bool authenticated = false;
+    std::string sessionToken;
+    bool active = true;
+};
+
 class Server {
     private:
         int _port;
@@ -11,6 +20,7 @@ class Server {
         TcpSocket _socket;
 
         void handleClient(TlsConnection &client);
+
     public:
         Server(int port, int backlog);
         void start();
