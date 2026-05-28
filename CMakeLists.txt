@@ -25,6 +25,7 @@ add_executable(ncp_server
         src/client/CommandMapper.cpp
         src/server/MessageValidator.cpp
         src/server/RequestHandler.cpp
+        src/server/UeSimulation.cpp
 )
 
 target_include_directories(ncp_server
@@ -42,6 +43,7 @@ add_executable(ncp_client
         src/client/CommandMapper.cpp
         src/server/MessageValidator.cpp
         src/server/RequestHandler.cpp
+        src/server/UeSimulation.cpp
 )
 
 target_include_directories(ncp_client

@@ -3,6 +3,7 @@
 
 #include <network/TcpSocket.h>
 #include <network/TlsConnection.h>
+#include <server/UeSimulation.h>
 
 #include <string>
 
@@ -11,6 +12,7 @@ struct Session {
     bool authenticated = false;
     std::string sessionToken;
     bool active = true;
+    UeSimulation simulation;
 };
 
 class Server {

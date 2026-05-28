@@ -65,12 +65,97 @@ Message RequestHandler::handleRequest(Message& request, Session& session) {
                 });
             }
 
+            case MessageType::ATTACH: {
+                if (!session.authenticated) {
+                    return makeError(request, "UNAUTHORIZED", "Operation requires authentication.");
+                }
+
+                if (request._session_token != session.sessionToken) {
+                    return makeError(request, "UNAUTHORIZED", "Invalid session token.");
+                }
+
+                string ueId = request._payload.at("ue_id");
+                nlohmann::json result = session.simulation.attach(ueId);
+
+                return makeResponse(request, MessageType::RESULT, result);
+            }
+
+            case MessageType::DETACH: {
+                if (!session.authenticated) {
+                    return makeError(request, "UNAUTHORIZED", "Operation requires authentication.");
+                }
+
+                if (request._session_token != session.sessionToken) {
+                    return makeError(request, "UNAUTHORIZED", "Invalid session token.");
+                }
+
+                string ueId = request._payload.at("ue_id");
+                nlohmann::json result = session.simulation.detach(ueId);
+
+                return makeResponse(request, MessageType::RESULT, result);
+            }
+
+            case MessageType::STATUS: {
+                if (!session.authenticated) {
+                    return makeError(request, "UNAUTHORIZED", "Operation requires authentication.");
+                }
+
+                if (request._session_token != session.sessionToken) {
+                    return makeError(request, "UNAUTHORIZED", "Invalid session token.");
+                }
+
+                string ueId = request._payload.at("ue_id");
+                nlohmann::json result = session.simulation.status(ueId);
+
+                return makeResponse(request, MessageType::RESULT, result);
+            }
+
+            case MessageType::GET_STATS: {
+                if (!session.authenticated) {
+                    return makeError(request, "UNAUTHORIZED", "Operation requires authentication.");
+                }
+
+                if (request._session_token != session.sessionToken) {
+                    return makeError(request, "UNAUTHORIZED", "Invalid session token.");
+                }
+
+                nlohmann::json result = session.simulation.stats();
+
+                return makeResponse(request, MessageType::RESULT, result);
+            }
+
+            case MessageType::RESET_SIM: {
+                if (!session.authenticated) {
+                    return makeError(request, "UNAUTHORIZED", "Operation requires authentication.");
+                }
+
+                if (request._session_token != session.sessionToken) {
+                    return makeError(request, "UNAUTHORIZED", "Invalid session token.");
+                }
+
+                nlohmann::json result = session.simulation.reset();
+
+                return makeResponse(request, MessageType::RESULT, result);
+            }
+
             default:
-                return makeError(request, "INVALID_STATE", "This operation is not available in stage 1.");
+                return makeError(request, "INVALID_STATE", "Unsupported message type.");
         }
 
+    } catch (const runtime_error& e) {
+        string error = e.what();
+
+        if (error.rfind("NOT_FOUND:", 0) == 0) {
+            return makeError(request, "NOT_FOUND", error.substr(11));
+        }
+
+        if (error.rfind("INVALID_STATE:", 0) == 0) {
+            return makeError(request, "INVALID_STATE", error.substr(15));
+        }
+
+        return makeError(request, "INVALID_FORMAT", error);
     } catch (const exception& e) {
-        return makeError(request, "INVALID_FORMAT", e.what());
+        return makeError(request, "INTERNAL_ERROR", e.what());
     }
 }
 
