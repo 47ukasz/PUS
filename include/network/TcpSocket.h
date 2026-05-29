@@ -27,6 +27,7 @@ public:
 
     int getSocketFd();
     bool isSocketValid();
+    int releaseSocketFd();
 };
 
 #endif //NCP_TCPSOCKET_H

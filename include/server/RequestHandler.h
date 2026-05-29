@@ -3,9 +3,11 @@
 
 #include <protocol/Message.h>
 #include <server/Server.h>
+#include <server/UeSimulation.h>
 
 #include <string>
 #include <vector>
+#include <mutex>
 
 class RequestHandler {
     private:
@@ -14,8 +16,20 @@ class RequestHandler {
         static std::string generateSessionToken();
         static bool isAuthorized(models::Message& request, Session& session);
 
+        static bool hasProcessedMessage(Session& session, models::Message& request);
+    static void storeProcessedMessage(
+        Session& session,
+        models::Message& request,
+        const std::vector<models::Message>& responses
+    );
+
     public:
-        static std::vector<models::Message> handleRequest(models::Message& request, Session& session);
+        static std::vector<models::Message> handleRequest(
+        models::Message& request,
+        Session& session,
+        UeSimulation& simulation,
+        std::mutex& simulationMutex
+    );
 };
 
 #endif //NCP_REQUESTHANDLER_H

@@ -6,36 +6,50 @@
 #include <string>
 #include <stdexcept>
 #include <vector>
+#include <mutex>
 
 using namespace models;
 using namespace std;
 
-vector<Message> RequestHandler::handleRequest(Message& request, Session& session) {
+vector<Message> RequestHandler::handleRequest(Message& request, Session& session, UeSimulation& simulation, mutex& simulationMutex) {
     try {
         MessageValidator::validate(request);
+
+        if (hasProcessedMessage(session, request)) {
+            return session.processedMessages[request._message_id];
+        }
 
         switch (request._type) {
             case MessageType::HELLO: {
                 if (session.helloDone) {
-                    return {
+                    vector<Message> responses = {
                         makeError(request, "INVALID_STATE", "HELLO was already exchanged.")
                     };
+
+                    storeProcessedMessage(session, request, responses);
+                    return responses;
                 }
 
                 session.helloDone = true;
 
-                return {
+                vector<Message> responses = {
                     makeResponse(request, MessageType::ACK, {
                         {"status", "HELLO_ACCEPTED"}
                     })
                 };
+
+                storeProcessedMessage(session, request, responses);
+                return responses;
             }
 
             case MessageType::AUTH: {
                 if (!session.helloDone) {
-                    return {
+                    vector<Message> responses = {
                         makeError(request, "INVALID_STATE", "HELLO must be sent before AUTH.")
                     };
+
+                    storeProcessedMessage(session, request, responses);
+                    return responses;
                 }
 
                 string login = request._payload.at("login");
@@ -45,55 +59,76 @@ vector<Message> RequestHandler::handleRequest(Message& request, Session& session
                     session.authenticated = true;
                     session.sessionToken = generateSessionToken();
 
-                    return {
+                    vector<Message> responses = {
                         makeResponse(request, MessageType::AUTH_OK, {
                             {"session_token", session.sessionToken}
                         })
                     };
+
+                    storeProcessedMessage(session, request, responses);
+                    return responses;
                 }
 
-                return {
+                vector<Message> responses = {
                     makeResponse(request, MessageType::AUTH_FAIL, {
                         {"message", "Invalid login or password"}
                     })
                 };
+
+                storeProcessedMessage(session, request, responses);
+                return responses;
             }
 
             case MessageType::BYE: {
                 if (!isAuthorized(request, session)) {
-                    return {
+                    vector<Message> responses = {
                         makeError(request, "UNAUTHORIZED", "Operation requires valid authentication token.")
                     };
+
+                    storeProcessedMessage(session, request, responses);
+                    return responses;
                 }
 
                 session.active = false;
 
-                return {
+                vector<Message> responses = {
                     makeResponse(request, MessageType::ACK, {
                         {"status", "SESSION_CLOSED"}
                     })
                 };
+
+                storeProcessedMessage(session, request, responses);
+                return responses;
             }
 
             case MessageType::PING: {
                 if (!isAuthorized(request, session)) {
-                    return {
+                    vector<Message> responses = {
                         makeError(request, "UNAUTHORIZED", "Operation requires valid authentication token.")
                     };
+
+                    storeProcessedMessage(session, request, responses);
+                    return responses;
                 }
 
-                return {
+                vector<Message> responses = {
                     makeResponse(request, MessageType::PONG, {
                         {"message", "PONG od serwera"}
                     })
                 };
+
+                storeProcessedMessage(session, request, responses);
+                return responses;
             }
 
             case MessageType::ATTACH: {
                 if (!isAuthorized(request, session)) {
-                    return {
+                    vector<Message> responses = {
                         makeError(request, "UNAUTHORIZED", "Operation requires valid authentication token.")
                     };
+
+                    storeProcessedMessage(session, request, responses);
+                    return responses;
                 }
 
                 Message ack = makeResponse(request, MessageType::ACK, {
@@ -102,41 +137,51 @@ vector<Message> RequestHandler::handleRequest(Message& request, Session& session
 
                 try {
                     string ueId = request._payload.at("ue_id");
-                    nlohmann::json result = session.simulation.attach(ueId);
+
+                    lock_guard<mutex> lock(simulationMutex);
+                    nlohmann::json result = simulation.attach(ueId);
 
                     Message finalResult = makeResponse(request, MessageType::RESULT, result);
 
-                    return {ack, finalResult};
+                    vector<Message> responses = {ack, finalResult};
+                    storeProcessedMessage(session, request, responses);
+                    return responses;
 
                 } catch (const runtime_error& e) {
                     string error = e.what();
 
+                    vector<Message> responses;
+
                     if (error.rfind("NOT_FOUND:", 0) == 0) {
-                        return {
+                        responses = {
                             ack,
                             makeError(request, "NOT_FOUND", error.substr(11))
                         };
-                    }
-
-                    if (error.rfind("INVALID_STATE:", 0) == 0) {
-                        return {
+                    } else if (error.rfind("INVALID_STATE:", 0) == 0) {
+                        responses = {
                             ack,
                             makeError(request, "INVALID_STATE", error.substr(15))
                         };
+                    } else {
+                        responses = {
+                            ack,
+                            makeError(request, "INTERNAL_ERROR", error)
+                        };
                     }
 
-                    return {
-                        ack,
-                        makeError(request, "INTERNAL_ERROR", error)
-                    };
+                    storeProcessedMessage(session, request, responses);
+                    return responses;
                 }
             }
 
             case MessageType::DETACH: {
                 if (!isAuthorized(request, session)) {
-                    return {
+                    vector<Message> responses = {
                         makeError(request, "UNAUTHORIZED", "Operation requires valid authentication token.")
                     };
+
+                    storeProcessedMessage(session, request, responses);
+                    return responses;
                 }
 
                 Message ack = makeResponse(request, MessageType::ACK, {
@@ -145,91 +190,119 @@ vector<Message> RequestHandler::handleRequest(Message& request, Session& session
 
                 try {
                     string ueId = request._payload.at("ue_id");
-                    nlohmann::json result = session.simulation.detach(ueId);
+
+                    lock_guard<mutex> lock(simulationMutex);
+                    nlohmann::json result = simulation.detach(ueId);
 
                     Message finalResult = makeResponse(request, MessageType::RESULT, result);
 
-                    return {ack, finalResult};
+                    vector<Message> responses = {ack, finalResult};
+                    storeProcessedMessage(session, request, responses);
+                    return responses;
 
                 } catch (const runtime_error& e) {
                     string error = e.what();
 
+                    vector<Message> responses;
+
                     if (error.rfind("NOT_FOUND:", 0) == 0) {
-                        return {
+                        responses = {
                             ack,
                             makeError(request, "NOT_FOUND", error.substr(11))
                         };
-                    }
-
-                    if (error.rfind("INVALID_STATE:", 0) == 0) {
-                        return {
+                    } else if (error.rfind("INVALID_STATE:", 0) == 0) {
+                        responses = {
                             ack,
                             makeError(request, "INVALID_STATE", error.substr(15))
                         };
+                    } else {
+                        responses = {
+                            ack,
+                            makeError(request, "INTERNAL_ERROR", error)
+                        };
                     }
 
-                    return {
-                        ack,
-                        makeError(request, "INTERNAL_ERROR", error)
-                    };
+                    storeProcessedMessage(session, request, responses);
+                    return responses;
                 }
             }
 
             case MessageType::STATUS: {
                 if (!isAuthorized(request, session)) {
-                    return {
+                    vector<Message> responses = {
                         makeError(request, "UNAUTHORIZED", "Operation requires valid authentication token.")
                     };
+
+                    storeProcessedMessage(session, request, responses);
+                    return responses;
                 }
 
                 try {
                     string ueId = request._payload.at("ue_id");
-                    nlohmann::json result = session.simulation.status(ueId);
 
-                    return {
+                    lock_guard<mutex> lock(simulationMutex);
+                    nlohmann::json result = simulation.status(ueId);
+
+                    vector<Message> responses = {
                         makeResponse(request, MessageType::RESULT, result)
                     };
+
+                    storeProcessedMessage(session, request, responses);
+                    return responses;
 
                 } catch (const runtime_error& e) {
                     string error = e.what();
 
+                    vector<Message> responses;
+
                     if (error.rfind("NOT_FOUND:", 0) == 0) {
-                        return {
+                        responses = {
                             makeError(request, "NOT_FOUND", error.substr(11))
                         };
-                    }
-
-                    if (error.rfind("INVALID_STATE:", 0) == 0) {
-                        return {
+                    } else if (error.rfind("INVALID_STATE:", 0) == 0) {
+                        responses = {
                             makeError(request, "INVALID_STATE", error.substr(15))
+                        };
+                    } else {
+                        responses = {
+                            makeError(request, "INTERNAL_ERROR", error)
                         };
                     }
 
-                    return {
-                        makeError(request, "INTERNAL_ERROR", error)
-                    };
+                    storeProcessedMessage(session, request, responses);
+                    return responses;
                 }
             }
 
             case MessageType::GET_STATS: {
                 if (!isAuthorized(request, session)) {
-                    return {
+                    vector<Message> responses = {
                         makeError(request, "UNAUTHORIZED", "Operation requires valid authentication token.")
                     };
+
+                    storeProcessedMessage(session, request, responses);
+                    return responses;
                 }
 
-                nlohmann::json result = session.simulation.stats();
+                lock_guard<mutex> lock(simulationMutex);
+                nlohmann::json result = simulation.stats();
 
-                return {
+                vector<Message> responses = {
                     makeResponse(request, MessageType::RESULT, result)
                 };
+
+                storeProcessedMessage(session, request, responses);
+                return responses;
             }
 
             case MessageType::RESET_SIM: {
                 if (!isAuthorized(request, session)) {
-                    return {
+                    vector<Message> responses = {
                         makeError(request, "UNAUTHORIZED", "Operation requires valid authentication token.")
                     };
+
+                    storeProcessedMessage(session, request, responses);
+                    return responses;
                 }
 
                 Message ack = makeResponse(request, MessageType::ACK, {
@@ -237,39 +310,53 @@ vector<Message> RequestHandler::handleRequest(Message& request, Session& session
                 });
 
                 try {
-                    nlohmann::json result = session.simulation.reset();
+                    lock_guard<mutex> lock(simulationMutex);
+                    nlohmann::json result = simulation.reset();
 
                     Message finalResult = makeResponse(request, MessageType::RESULT, result);
 
-                    return {ack, finalResult};
+                    vector<Message> responses = {ack, finalResult};
+                    storeProcessedMessage(session, request, responses);
+                    return responses;
 
                 } catch (const runtime_error& e) {
-                    return {
+                    vector<Message> responses = {
                         ack,
                         makeError(request, "INTERNAL_ERROR", e.what())
                     };
+
+                    storeProcessedMessage(session, request, responses);
+                    return responses;
                 }
             }
 
-            default:
-                return {
+            default: {
+                vector<Message> responses = {
                     makeError(request, "INVALID_STATE", "Unsupported message type.")
                 };
+
+                storeProcessedMessage(session, request, responses);
+                return responses;
+            }
         }
 
     } catch (const ValidationException& e) {
-        return {
+        vector<Message> responses = {
             makeError(request, e.errorCode(), e.what())
         };
+
+        storeProcessedMessage(session, request, responses);
+        return responses;
 
     } catch (const runtime_error& e) {
         string error = e.what();
 
-        if (error.rfind("NOT_FOUND:", 0) == 0) {
-            return {
-                makeError(request, "NOT_FOUND", error.substr(11))
-            };
-        }
+        vector<Message> responses = {
+            makeError(request, "NOT_FOUND", error.substr(11))
+        };
+
+        storeProcessedMessage(session, request, responses);
+        return responses;
 
         if (error.rfind("INVALID_STATE:", 0) == 0) {
             return {
@@ -317,4 +404,14 @@ string RequestHandler::generateSessionToken() {
 
 bool RequestHandler::isAuthorized(Message& request, Session& session) {
     return session.authenticated && request._session_token == session.sessionToken;
+}
+
+bool RequestHandler::hasProcessedMessage(Session& session, Message& request) {
+    return session.processedMessages.find(request._message_id) != session.processedMessages.end();
+}
+
+void RequestHandler::storeProcessedMessage(Session& session, Message& request, const vector<Message>& responses) {
+    if (!request._message_id.empty()) {
+        session.processedMessages[request._message_id] = responses;
+    }
 }

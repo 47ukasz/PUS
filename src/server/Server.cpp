@@ -10,6 +10,7 @@
 #include <string>
 #include <unistd.h>
 #include <vector>
+#include <thread>
 
 #include "protocol/JsonCoder.h"
 #include "server/RequestHandler.h"
@@ -35,10 +36,9 @@ SSL_CTX *Server::createServerContext() {
     return ctx;
 }
 
-Server::Server(int port, int backlog) : _port(port), _backlog(backlog) {}
+Server::Server(int port, int backlog) : _port(port), _backlog(backlog), _simulation() {}
 
 void Server::start() {
-    signal(SIGCHLD, SIG_IGN);
     SSL_library_init();
     SSL_load_error_strings();
 
@@ -53,23 +53,23 @@ void Server::start() {
         TcpSocket client = _socket.acceptConnection();
         client.printAddress("KLIENT");
 
-        pid_t pid = fork();
+        int clientFd = client.releaseSocketFd();
 
-        if (pid < 0) {
-            throw runtime_error("Nie udało się utworzyć procesu");
-        }
+        thread clientThread([this, ctx, clientFd]() {
+            try {
+                TlsConnection clientTls(ctx, clientFd);
+                clientTls.acceptTls();
 
-        if (pid == 0) {
-            _socket.closeSocket();
+                handleClient(clientTls);
 
-            TlsConnection client_tls(ctx, client.getSocketFd());
-            client_tls.acceptTls();
+            } catch (const exception& e) {
+                cout << "[SERWER] Błąd obsługi klienta: " << e.what() << endl;
+            }
 
-            handleClient(client_tls);
-            return;
-        }
+            close(clientFd);
+        });
 
-        client.closeSocket();
+        clientThread.detach();
     }
 
     SSL_CTX_free(ctx);
@@ -92,7 +92,7 @@ void Server::handleClient(TlsConnection &client) {
             cout << "[SERWER] Odebrano komunikat: " << rawRequest << endl;
 
             Message request = JsonCoder::deserialize(rawRequest);
-            vector<Message> responses = RequestHandler::handleRequest(request, session);
+            vector<Message> responses = RequestHandler::handleRequest(request, session, _simulation, _simulationMutex);
             
             for (Message& response : responses) {
                 string rawResponse = JsonCoder::serialize(response);

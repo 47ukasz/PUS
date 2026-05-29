@@ -4,15 +4,19 @@
 #include <network/TcpSocket.h>
 #include <network/TlsConnection.h>
 #include <server/UeSimulation.h>
+#include <protocol/Message.h>
 
 #include <string>
+#include <mutex>
+#include <map>
+#include <vector>
 
 struct Session {
     bool helloDone = false;
     bool authenticated = false;
     std::string sessionToken;
     bool active = true;
-    UeSimulation simulation;
+    std::map<std::string, std::vector<models::Message>> processedMessages;
 };
 
 class Server {
@@ -20,6 +24,8 @@ class Server {
         int _port;
         int _backlog;
         TcpSocket _socket;
+        UeSimulation _simulation;
+        std::mutex _simulationMutex;
 
         void handleClient(TlsConnection &client);
 

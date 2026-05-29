@@ -131,6 +131,12 @@ int TcpSocket::getSocketFd() {
     return _socketFd;
 }
 
+int TcpSocket::releaseSocketFd() {
+    int fd = _socketFd;
+    _socketFd = -1;
+    return fd;
+}
+
 bool TcpSocket::isSocketValid() {
     return _socketFd >= 0;
 }
