@@ -9,6 +9,7 @@
 #include <csignal>
 #include <string>
 #include <unistd.h>
+#include <vector>
 
 #include "protocol/JsonCoder.h"
 #include "server/RequestHandler.h"
@@ -91,12 +92,13 @@ void Server::handleClient(TlsConnection &client) {
             cout << "[SERWER] Odebrano komunikat: " << rawRequest << endl;
 
             Message request = JsonCoder::deserialize(rawRequest);
-            Message response = RequestHandler::handleRequest(request, session);
-
-            string rawResponse = JsonCoder::serialize(response);
-
-            cout << "[SERWER] Wysłano odpowiedź: " << rawResponse << endl;
-            client.sendData(rawResponse);
+            vector<Message> responses = RequestHandler::handleRequest(request, session);
+            
+            for (Message& response : responses) {
+                string rawResponse = JsonCoder::serialize(response);
+                cout << "[SERWER] Wysłano odpowiedź: " << rawResponse << endl;
+                client.sendData(rawResponse);
+            }
 
             if (request._type == MessageType::BYE) {
                 cout << "[SERWER] Sesja zakończona przez klienta" << endl;

@@ -4,6 +4,9 @@
 #include <protocol/Message.h>
 #include <server/Server.h>
 
+#include <string>
+#include <vector>
+
 class RequestHandler {
     private:
         static models::Message makeResponse(models::Message& request, MessageType type, nlohmann::json payload);
@@ -11,7 +14,7 @@ class RequestHandler {
         static std::string generateSessionToken();
 
     public:
-        static models::Message handleRequest(models::Message& request, Session& session);
+        static std::vector<models::Message> handleRequest(models::Message& request, Session& session);
 };
 
 #endif //NCP_REQUESTHANDLER_H

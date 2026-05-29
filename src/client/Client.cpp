@@ -149,4 +149,18 @@ void Client::sendAndPrintResponse(Message& message) {
 
         cout << "[KLIENT] Logowanie nieudane." << endl;
     }
+
+    bool operationWithAckAndResult =
+        message._type == MessageType::ATTACH ||
+        message._type == MessageType::DETACH ||
+        message._type == MessageType::RESET_SIM;
+
+    if (operationWithAckAndResult && response._type == MessageType::ACK) {
+        if (response._payload.contains("status") && response._payload.at("status") == "PROCESSING") {
+            string rawFinalResponse = _tls->receiveData(4096);
+            Message finalResponse = JsonCoder::deserialize(rawFinalResponse);
+
+            cout << "[KLIENT] Końcowa odpowiedź serwera: " << rawFinalResponse << endl;
+        }
+    }
 }
