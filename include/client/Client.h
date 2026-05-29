@@ -8,6 +8,7 @@
 #include "network/TcpSocket.h"
 #include "network/TlsConnection.h"
 #include "protocol/Message.h"
+#include "protocol/TimeoutConfig.h"
 
 class Client {
     private:
@@ -24,6 +25,8 @@ class Client {
         void handleCommand(std::string& command);
         void connectToServer(const std::string& host, int port);
         void sendAndPrintResponse(models::Message& message);
+
+        TimeoutType expectedTimeoutFor(MessageType type);
 
     public:
         Client(std::string host, int port);

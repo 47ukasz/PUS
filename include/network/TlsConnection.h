@@ -16,6 +16,9 @@ class TlsConnection {
     void acceptTls();
     void connectTls();
 
+    void setReceiveTimeout(int timeoutSeconds);
+    void clearReceiveTimeout();
+
     void sendData(std::string& data);
     std::string receiveData(size_t bufferSize);
 };

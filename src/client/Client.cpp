@@ -8,6 +8,8 @@
 #include <stdexcept>
 #include <sstream>
 
+#include "protocol/TimeoutManager.h"
+
 using namespace models;
 using namespace std;
 
@@ -82,40 +84,27 @@ void Client::run() {
 }
 
 void Client::handleCommand(string &command) {
-    if (command.rfind("connect ", 0) == 0) {
-        istringstream iss(command);
-        string cmd;
-        string host;
-        int port;
+    ParsedCommand parsed = CommandMapper::parse(command);
 
-        iss >> cmd >> host >> port;
+    Message message = parsed.message;
 
-        if (host.empty() || port <= 0) {
-            throw runtime_error("Użycie: connect <host> <port>");
-        }
-
-        connectToServer(host, port);
-
-        Message hello = CommandMapper::mapToMessage(command);
-        sendAndPrintResponse(hello);
+    if (message._type == MessageType::HELLO) {
+        connectToServer(parsed.host, parsed.port);
+        sendAndPrintResponse(message);
         return;
     }
 
-    if (command == "exit") {
+    if (message._type == MessageType::BYE) {
         if (!_connected) {
             cout << "[KLIENT] Zamykanie klienta." << endl;
             exit(EXIT_SUCCESS);
+
         }
 
-        if (!_authenticated) {
-            cout << "[KLIENT] Połączenie nie było zalogowane. Zamykanie klienta lokalnie." << endl;
-            exit(EXIT_SUCCESS);
+        if (_authenticated) {
+            message._session_token = _sessionToken;
+            sendAndPrintResponse(message);
         }
-
-        Message message = CommandMapper::mapToMessage(command);
-        message._session_token = _sessionToken;
-
-        sendAndPrintResponse(message);
 
         cout << "[KLIENT] Zamykanie klienta." << endl;
         exit(EXIT_SUCCESS);
@@ -126,8 +115,6 @@ void Client::handleCommand(string &command) {
         return;
     }
 
-    Message message = CommandMapper::mapToMessage(command);
-
     if (_authenticated && message._type != MessageType::AUTH) {
         message._session_token = _sessionToken;
     }
@@ -136,9 +123,13 @@ void Client::handleCommand(string &command) {
 }
 
 void Client::sendAndPrintResponse(Message& message) {
+    TimeoutConfig config;
+    TimeoutManager timeoutManager(config);
+
     string rawMessage = JsonCoder::serialize(message);
     _tls->sendData(rawMessage);
 
+    _tls->setReceiveTimeout(timeoutManager.timeoutFor(expectedTimeoutFor(message._type)));
     string rawResponse = _tls->receiveData(4096);
     Message response = JsonCoder::deserialize(rawResponse);
 
@@ -160,13 +151,12 @@ void Client::sendAndPrintResponse(Message& message) {
         cout << "[KLIENT] Logowanie nieudane." << endl;
     }
 
-    bool operationWithAckAndResult =
-        message._type == MessageType::ATTACH ||
-        message._type == MessageType::DETACH ||
-        message._type == MessageType::RESET_SIM;
+    bool operationWithAckAndResult = message._type == MessageType::ATTACH || message._type == MessageType::DETACH || message._type == MessageType::RESET_SIM;
 
     if (operationWithAckAndResult && response._type == MessageType::ACK) {
         if (response._payload.contains("status") && response._payload.at("status") == "PROCESSING") {
+            _tls->setReceiveTimeout(timeoutManager.timeoutFor(TimeoutType::Result));
+
             string rawFinalResponse = _tls->receiveData(4096);
             Message finalResponse = JsonCoder::deserialize(rawFinalResponse);
 
@@ -176,11 +166,22 @@ void Client::sendAndPrintResponse(Message& message) {
 
     if (response._type == MessageType::ERROR) {
         if (response._payload.contains("error_code") && response._payload.contains("error_message")) {
-            cout << "[KLIENT] Błąd "
-                 << response._payload.at("error_code")
-                 << ": "
-                 << response._payload.at("error_message")
-                 << endl;
+            cout << "[KLIENT] Błąd " << response._payload.at("error_code") << ": " << response._payload.at("error_message") << endl;
         }
+    }
+}
+
+TimeoutType Client::expectedTimeoutFor(MessageType type) {
+    switch (type) {
+        case MessageType::AUTH:
+            return TimeoutType::Auth;
+
+        case MessageType::ATTACH:
+        case MessageType::DETACH:
+        case MessageType::RESET_SIM:
+            return TimeoutType::Ack;
+
+        default:
+            return TimeoutType::Result;
     }
 }

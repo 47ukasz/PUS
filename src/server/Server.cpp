@@ -13,6 +13,7 @@
 #include <thread>
 
 #include "protocol/JsonCoder.h"
+#include "protocol/TimeoutManager.h"
 #include "server/RequestHandler.h"
 
 using namespace std;
@@ -78,10 +79,20 @@ void Server::start() {
 void Server::handleClient(TlsConnection &client) {
     cout << "[SERWER] Klient uzyskał połączenie TLS" << endl;
 
+    TimeoutConfig config;
+    TimeoutManager timeoutManager(config);
     Session session{};
 
     while (session.active) {
         try {
+            if (!session.helloDone) {
+                client.setReceiveTimeout(timeoutManager.timeoutFor(TimeoutType::Hello));
+            } else if (!session.authenticated) {
+                client.setReceiveTimeout(timeoutManager.timeoutFor(TimeoutType::Auth));
+            }else {
+                client.setReceiveTimeout(timeoutManager.timeoutFor(TimeoutType::Idle));
+            }
+
             string rawRequest = client.receiveData(4096);
 
             if (rawRequest.empty()) {
@@ -106,7 +117,12 @@ void Server::handleClient(TlsConnection &client) {
             }
 
         } catch (const exception& e) {
-            cout << "[SERWER] Błąd obsługi klienta: " << e.what() << endl;
+            if (string(e.what()) == "TIMEOUT") {
+                cout << "[SERWER] Timeout sesji. Zamykanie połączenia." << endl;
+            } else {
+                cout << "[SERWER] Błąd obsługi klienta: " << e.what() << endl;
+            }
+
             break;
         }
     }

@@ -3,12 +3,18 @@
 
 #include <protocol/Message.h>
 
+struct ParsedCommand {
+    models::Message message;
+    std::string host;
+    int port = 0;
+};
+
 class CommandMapper {
     private:
         static int _messageCounter;
         static std::string generateMessageId();
     public:
-        static models::Message mapToMessage(std::string cli);
+        static ParsedCommand parse(std::string cli);
 };
 
 #endif //NCP_COMMANDMAPPER_H

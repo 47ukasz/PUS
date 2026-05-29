@@ -26,6 +26,7 @@ add_executable(ncp_server
         src/server/MessageValidator.cpp
         src/server/RequestHandler.cpp
         src/server/UeSimulation.cpp
+        src/protocol/TimeoutManager.cpp
 )
 
 target_include_directories(ncp_server
@@ -44,6 +45,8 @@ add_executable(ncp_client
         src/server/MessageValidator.cpp
         src/server/RequestHandler.cpp
         src/server/UeSimulation.cpp
+        include/protocol/TimeoutConfig.h
+        src/protocol/TimeoutManager.cpp
 )
 
 target_include_directories(ncp_client
