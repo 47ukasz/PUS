@@ -101,7 +101,22 @@ void Client::handleCommand(string &command) {
         return;
     }
 
-    if (command == "exit" && !_connected) {
+    if (command == "exit") {
+        if (!_connected) {
+            cout << "[KLIENT] Zamykanie klienta." << endl;
+            exit(EXIT_SUCCESS);
+        }
+
+        if (!_authenticated) {
+            cout << "[KLIENT] Połączenie nie było zalogowane. Zamykanie klienta lokalnie." << endl;
+            exit(EXIT_SUCCESS);
+        }
+
+        Message message = CommandMapper::mapToMessage(command);
+        message._session_token = _sessionToken;
+
+        sendAndPrintResponse(message);
+
         cout << "[KLIENT] Zamykanie klienta." << endl;
         exit(EXIT_SUCCESS);
     }
@@ -118,11 +133,6 @@ void Client::handleCommand(string &command) {
     }
 
     sendAndPrintResponse(message);
-
-    if (message._type == MessageType::BYE) {
-        cout << "[KLIENT] Zamykanie klienta." << endl;
-        exit(EXIT_SUCCESS);
-    }
 }
 
 void Client::sendAndPrintResponse(Message& message) {
@@ -161,6 +171,16 @@ void Client::sendAndPrintResponse(Message& message) {
             Message finalResponse = JsonCoder::deserialize(rawFinalResponse);
 
             cout << "[KLIENT] Końcowa odpowiedź serwera: " << rawFinalResponse << endl;
+        }
+    }
+
+    if (response._type == MessageType::ERROR) {
+        if (response._payload.contains("error_code") && response._payload.contains("error_message")) {
+            cout << "[KLIENT] Błąd "
+                 << response._payload.at("error_code")
+                 << ": "
+                 << response._payload.at("error_message")
+                 << endl;
         }
     }
 }

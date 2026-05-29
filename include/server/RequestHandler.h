@@ -12,6 +12,7 @@ class RequestHandler {
         static models::Message makeResponse(models::Message& request, MessageType type, nlohmann::json payload);
         static models::Message makeError(models::Message& request, std::string errorCode, std::string errorMessage);
         static std::string generateSessionToken();
+        static bool isAuthorized(models::Message& request, Session& session);
 
     public:
         static std::vector<models::Message> handleRequest(models::Message& request, Session& session);

@@ -1,5 +1,6 @@
 #include <server/RequestHandler.h>
 #include <server/MessageValidator.h>
+#include <server/ValidationException.h>
 
 #include <ctime>
 #include <string>
@@ -15,6 +16,12 @@ vector<Message> RequestHandler::handleRequest(Message& request, Session& session
 
         switch (request._type) {
             case MessageType::HELLO: {
+                if (session.helloDone) {
+                    return {
+                        makeError(request, "INVALID_STATE", "HELLO was already exchanged.")
+                    };
+                }
+
                 session.helloDone = true;
 
                 return {
@@ -53,6 +60,12 @@ vector<Message> RequestHandler::handleRequest(Message& request, Session& session
             }
 
             case MessageType::BYE: {
+                if (!isAuthorized(request, session)) {
+                    return {
+                        makeError(request, "UNAUTHORIZED", "Operation requires valid authentication token.")
+                    };
+                }
+
                 session.active = false;
 
                 return {
@@ -63,15 +76,9 @@ vector<Message> RequestHandler::handleRequest(Message& request, Session& session
             }
 
             case MessageType::PING: {
-                if (!session.authenticated) {
+                if (!isAuthorized(request, session)) {
                     return {
-                        makeError(request, "UNAUTHORIZED", "Operation requires authentication.")
-                    };
-                }
-
-                if (request._session_token != session.sessionToken) {
-                    return {
-                        makeError(request, "UNAUTHORIZED", "Invalid session token.")
+                        makeError(request, "UNAUTHORIZED", "Operation requires valid authentication token.")
                     };
                 }
 
@@ -83,15 +90,9 @@ vector<Message> RequestHandler::handleRequest(Message& request, Session& session
             }
 
             case MessageType::ATTACH: {
-                if (!session.authenticated) {
+                if (!isAuthorized(request, session)) {
                     return {
-                        makeError(request, "UNAUTHORIZED", "Operation requires authentication.")
-                    };
-                }
-
-                if (request._session_token != session.sessionToken) {
-                    return {
-                        makeError(request, "UNAUTHORIZED", "Invalid session token.")
+                        makeError(request, "UNAUTHORIZED", "Operation requires valid authentication token.")
                     };
                 }
 
@@ -132,15 +133,9 @@ vector<Message> RequestHandler::handleRequest(Message& request, Session& session
             }
 
             case MessageType::DETACH: {
-                if (!session.authenticated) {
+                if (!isAuthorized(request, session)) {
                     return {
-                        makeError(request, "UNAUTHORIZED", "Operation requires authentication.")
-                    };
-                }
-
-                if (request._session_token != session.sessionToken) {
-                    return {
-                        makeError(request, "UNAUTHORIZED", "Invalid session token.")
+                        makeError(request, "UNAUTHORIZED", "Operation requires valid authentication token.")
                     };
                 }
 
@@ -181,36 +176,45 @@ vector<Message> RequestHandler::handleRequest(Message& request, Session& session
             }
 
             case MessageType::STATUS: {
-                if (!session.authenticated) {
+                if (!isAuthorized(request, session)) {
                     return {
-                        makeError(request, "UNAUTHORIZED", "Operation requires authentication.")
+                        makeError(request, "UNAUTHORIZED", "Operation requires valid authentication token.")
                     };
                 }
 
-                if (request._session_token != session.sessionToken) {
+                try {
+                    string ueId = request._payload.at("ue_id");
+                    nlohmann::json result = session.simulation.status(ueId);
+
                     return {
-                        makeError(request, "UNAUTHORIZED", "Invalid session token.")
+                        makeResponse(request, MessageType::RESULT, result)
+                    };
+
+                } catch (const runtime_error& e) {
+                    string error = e.what();
+
+                    if (error.rfind("NOT_FOUND:", 0) == 0) {
+                        return {
+                            makeError(request, "NOT_FOUND", error.substr(11))
+                        };
+                    }
+
+                    if (error.rfind("INVALID_STATE:", 0) == 0) {
+                        return {
+                            makeError(request, "INVALID_STATE", error.substr(15))
+                        };
+                    }
+
+                    return {
+                        makeError(request, "INTERNAL_ERROR", error)
                     };
                 }
-
-                string ueId = request._payload.at("ue_id");
-                nlohmann::json result = session.simulation.status(ueId);
-
-                return {
-                    makeResponse(request, MessageType::RESULT, result)
-                };
             }
 
             case MessageType::GET_STATS: {
-                if (!session.authenticated) {
+                if (!isAuthorized(request, session)) {
                     return {
-                        makeError(request, "UNAUTHORIZED", "Operation requires authentication.")
-                    };
-                }
-
-                if (request._session_token != session.sessionToken) {
-                    return {
-                        makeError(request, "UNAUTHORIZED", "Invalid session token.")
+                        makeError(request, "UNAUTHORIZED", "Operation requires valid authentication token.")
                     };
                 }
 
@@ -222,15 +226,9 @@ vector<Message> RequestHandler::handleRequest(Message& request, Session& session
             }
 
             case MessageType::RESET_SIM: {
-                if (!session.authenticated) {
+                if (!isAuthorized(request, session)) {
                     return {
-                        makeError(request, "UNAUTHORIZED", "Operation requires authentication.")
-                    };
-                }
-
-                if (request._session_token != session.sessionToken) {
-                    return {
-                        makeError(request, "UNAUTHORIZED", "Invalid session token.")
+                        makeError(request, "UNAUTHORIZED", "Operation requires valid authentication token.")
                     };
                 }
 
@@ -259,6 +257,11 @@ vector<Message> RequestHandler::handleRequest(Message& request, Session& session
                 };
         }
 
+    } catch (const ValidationException& e) {
+        return {
+            makeError(request, e.errorCode(), e.what())
+        };
+
     } catch (const runtime_error& e) {
         string error = e.what();
 
@@ -286,7 +289,13 @@ vector<Message> RequestHandler::handleRequest(Message& request, Session& session
 }
 
 Message RequestHandler::makeResponse(Message& request, MessageType type, nlohmann::json payload) {
-    return Message{type, request._message_id, time(nullptr), request._session_token, payload};
+    return Message{
+        type,
+        request._message_id,
+        time(nullptr),
+        request._session_token,
+        payload
+    };
 }
 
 Message RequestHandler::makeError(Message& request, string errorCode, string errorMessage) {
@@ -304,4 +313,8 @@ Message RequestHandler::makeError(Message& request, string errorCode, string err
 
 string RequestHandler::generateSessionToken() {
     return "token_" + to_string(time(nullptr));
+}
+
+bool RequestHandler::isAuthorized(Message& request, Session& session) {
+    return session.authenticated && request._session_token == session.sessionToken;
 }
