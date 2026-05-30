@@ -5,6 +5,9 @@
 #include <openssl/types.h>
 #include <string>
 #include <thread>
+#include <atomic>
+#include <map>
+#include <mutex>
 
 #include "PendingRequest.h"
 #include "network/TcpSocket.h"
@@ -27,6 +30,7 @@ class Client {
 
         std::thread _receiverThread;
         std::atomic<bool> _isReceiverRunning { false };
+        std::atomic<bool> _exitAfterSessionClosed { false };
         std::mutex _sendMutex;
         std::mutex _printMutex;
         std::mutex _pendingMutex;
@@ -38,7 +42,7 @@ class Client {
         void stopTimeoutManager();
         void timeoutLoop();
 
-        void handleRequestTimeout(std::map<std::string, PendingRequest>::iterator& it, time_t now);
+        void handleRequestTimeout(std::map<std::string, PendingRequest>::iterator& it, time_t now, const std::string& timeoutType);
         void handleCommand(std::string& command);
         void handleResponse(std::string& rawResponse);
 

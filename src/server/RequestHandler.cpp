@@ -1,12 +1,16 @@
 #include <server/RequestHandler.h>
 #include <server/MessageValidator.h>
 #include <server/ValidationException.h>
+#include <server/Logger.h>
 
 #include <ctime>
 #include <string>
 #include <stdexcept>
 #include <vector>
 #include <mutex>
+#include <iomanip>
+#include <random>
+#include <sstream>
 
 using namespace models;
 using namespace std;
@@ -16,6 +20,7 @@ vector<Message> RequestHandler::handleRequest(Message& request, Session& session
         MessageValidator::validate(request);
 
         if (hasProcessedMessage(session, request)) {
+            Logger::warn("Wykryto duplikat message_id=" + request._message_id + ". Zwracam poprzednią odpowiedź.");
             return session.processedMessages[request._message_id];
         }
 
@@ -59,6 +64,8 @@ vector<Message> RequestHandler::handleRequest(Message& request, Session& session
                     session.authenticated = true;
                     session.sessionToken = generateSessionToken();
 
+                    Logger::info("AUTH_OK dla użytkownika: " + login);
+
                     vector<Message> responses = {
                         makeResponse(request, MessageType::AUTH_OK, {
                             {"session_token", session.sessionToken}
@@ -68,6 +75,8 @@ vector<Message> RequestHandler::handleRequest(Message& request, Session& session
                     storeProcessedMessage(session, request, responses);
                     return responses;
                 }
+
+                Logger::warn("AUTH_FAIL dla użytkownika: " + login);
 
                 vector<Message> responses = {
                     makeResponse(request, MessageType::AUTH_FAIL, {
@@ -90,6 +99,8 @@ vector<Message> RequestHandler::handleRequest(Message& request, Session& session
                 }
 
                 session.active = false;
+
+                Logger::info("BYE odebrano. Sesja zostanie zakończona.");
 
                 vector<Message> responses = {
                     makeResponse(request, MessageType::ACK, {
@@ -140,6 +151,7 @@ vector<Message> RequestHandler::handleRequest(Message& request, Session& session
 
                     lock_guard<mutex> lock(simulationMutex);
                     nlohmann::json result = simulation.attach(ueId);
+                    Logger::info("ATTACH wykonano dla " + ueId + ".");
 
                     Message finalResult = makeResponse(request, MessageType::RESULT, result);
 
@@ -194,6 +206,7 @@ vector<Message> RequestHandler::handleRequest(Message& request, Session& session
 
                     lock_guard<mutex> lock(simulationMutex);
                     nlohmann::json result = simulation.detach(ueId);
+                    Logger::info("DETACH wykonano dla " + ueId + ".");
 
                     Message finalResult = makeResponse(request, MessageType::RESULT, result);
 
@@ -243,6 +256,7 @@ vector<Message> RequestHandler::handleRequest(Message& request, Session& session
 
                     lock_guard<mutex> lock(simulationMutex);
                     nlohmann::json result = simulation.status(ueId);
+                    Logger::info("STATUS pobrano dla " + ueId + ".");
 
                     vector<Message> responses = {
                         makeResponse(request, MessageType::RESULT, result)
@@ -287,6 +301,7 @@ vector<Message> RequestHandler::handleRequest(Message& request, Session& session
 
                 lock_guard<mutex> lock(simulationMutex);
                 nlohmann::json result = simulation.stats();
+                Logger::info("GET_STATS wykonano.");
 
                 vector<Message> responses = {
                     makeResponse(request, MessageType::RESULT, result)
@@ -313,6 +328,7 @@ vector<Message> RequestHandler::handleRequest(Message& request, Session& session
                 try {
                     lock_guard<mutex> lock(simulationMutex);
                     nlohmann::json result = simulation.reset();
+                    Logger::info("RESET_SIM wykonano.");
 
                     Message finalResult = makeResponse(request, MessageType::RESULT, result);
 
@@ -351,28 +367,32 @@ vector<Message> RequestHandler::handleRequest(Message& request, Session& session
 
     } catch (const runtime_error& e) {
         string error = e.what();
+        vector<Message> responses;
 
-        vector<Message> responses = {
-            makeError(request, "NOT_FOUND", error.substr(11))
-        };
+        if (error.rfind("NOT_FOUND:", 0) == 0) {
+            responses = {
+                makeError(request, "NOT_FOUND", error.substr(11))
+            };
+        } else if (error.rfind("INVALID_STATE:", 0) == 0) {
+            responses = {
+                makeError(request, "INVALID_STATE", error.substr(15))
+            };
+        } else {
+            responses = {
+                makeError(request, "INVALID_FORMAT", error)
+            };
+        }
 
         storeProcessedMessage(session, request, responses);
         return responses;
 
-        if (error.rfind("INVALID_STATE:", 0) == 0) {
-            return {
-                makeError(request, "INVALID_STATE", error.substr(15))
-            };
-        }
-
-        return {
-            makeError(request, "INVALID_FORMAT", error)
-        };
-
     } catch (const exception& e) {
-        return {
+        vector<Message> responses = {
             makeError(request, "INTERNAL_ERROR", e.what())
         };
+
+        storeProcessedMessage(session, request, responses);
+        return responses;
     }
 }
 
@@ -400,7 +420,21 @@ Message RequestHandler::makeError(Message& request, string errorCode, string err
 }
 
 string RequestHandler::generateSessionToken() {
-    return "token_" + to_string(time(nullptr));
+    static random_device rd;
+    static mt19937_64 generator(rd());
+    static mutex tokenMutex;
+
+    lock_guard<mutex> lock(tokenMutex);
+
+    uniform_int_distribution<unsigned long long> distribution;
+
+    stringstream ss;
+    ss << "token_"
+       << hex
+       << setw(16) << setfill('0') << distribution(generator)
+       << setw(16) << setfill('0') << distribution(generator);
+
+    return ss.str();
 }
 
 bool RequestHandler::isAuthorized(Message& request, Session& session) {

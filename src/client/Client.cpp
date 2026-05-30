@@ -6,6 +6,7 @@
 
 #include <iostream>
 #include <stdexcept>
+#include <cstdlib>
 
 using namespace models;
 using namespace std;
@@ -154,14 +155,17 @@ void Client::handleCommand(string &command) {
             exit(EXIT_SUCCESS);
         }
 
-        if (_authenticated) {
-            message._session_token = _sessionToken;
-            sendMessage(message);
+        if (!_authenticated) {
+            lock_guard lock(_printMutex);
+            cout << "[KLIENT] Połączenie nie było zalogowane. Zamykanie klienta lokalnie." << endl;
+            exit(EXIT_SUCCESS);
         }
 
-        lock_guard lock(_printMutex);
-        cout << "[KLIENT] Zamykanie klienta." << endl;
-        exit(EXIT_SUCCESS);
+        message._session_token = _sessionToken;
+        _exitAfterSessionClosed = true;
+        sendMessage(message);
+
+        return;
     }
 
     if (_authenticated && message._type != MessageType::AUTH) {
@@ -209,13 +213,27 @@ void Client::stopReceiver() {
 }
 
 void Client::handleResponse(std::string& rawResponse) {
+    Message response = JsonCoder::deserialize(rawResponse);
+    updatePendingRequest(response);
+
     {
         lock_guard lock(_printMutex);
         cout << "[KLIENT] Odpowiedź serwera: " << rawResponse << endl;
     }
 
-    Message response = JsonCoder::deserialize(rawResponse);
-    updatePendingRequest(response);
+    if (rawResponse.find("SESSION_CLOSED") != std::string::npos) {
+        {
+            lock_guard lock(_printMutex);
+            cout << "[KLIENT] Sesja zakończona poprawnie." << endl;
+        }
+
+        _isReceiverRunning = false;
+        _isTimeoutRunning = false;
+        _connected = false;
+        _authenticated = false;
+
+        std::_Exit(EXIT_SUCCESS);
+    }
 
     if (response._type == MessageType::PING) {
         Message pong{
@@ -318,21 +336,12 @@ void Client::timeoutLoop() {
                 PendingRequest& pending = it->second;
 
                 if (!pending.ackReceived && now - pending.lastSentAt >= 2) {
-
-                    lock_guard printLock(_printMutex);
-                    cout << "[KLIENT] Timeout ACK dla message_id=" << it->first << endl;
-
-                    handleRequestTimeout(it, now);
+                    handleRequestTimeout(it, now, "ACK");
                     continue;
                 }
 
                 if (pending.ackReceived && !pending.completed && now - pending.lastSentAt >= 10) {
-
-                    lock_guard printLock(_printMutex);
-                    cout << "[KLIENT] Timeout RESULT dla message_id=" << it->first << endl;
-
-                    handleRequestTimeout(it, now);
-
+                    handleRequestTimeout(it, now, "RESULT");
                     continue;
                 }
 
@@ -344,12 +353,23 @@ void Client::timeoutLoop() {
     }
 }
 
-void Client::handleRequestTimeout(std::map<std::string, PendingRequest>::iterator &it, time_t now) {
+void Client::handleRequestTimeout(
+    std::map<std::string, PendingRequest>::iterator &it,
+    time_t now,
+    const std::string& timeoutType
+) {
     PendingRequest& pending = it->second;
 
-    if (pending.retryCount >= 3) {
+    {
         lock_guard printLock(_printMutex);
-        cout << "[KLIENT] Przekroczono limit retransmisji dla message_id="<< it->first << endl;
+        cout << "[KLIENT] Timeout " << timeoutType << " dla message_id=" << it->first << endl;
+    }
+
+    if (pending.retryCount >= 3) {
+        {
+            lock_guard printLock(_printMutex);
+            cout << "[KLIENT] Przekroczono limit retransmisji dla message_id=" << it->first << endl;
+        }
 
         it = _pendingRequests.erase(it);
         return;
@@ -363,10 +383,10 @@ void Client::handleRequestTimeout(std::map<std::string, PendingRequest>::iterato
     pending.retryCount++;
     pending.lastSentAt = now;
 
-    lock_guard printLock(_printMutex);
-
-    cout << "[KLIENT] Retransmisja " << pending.retryCount << "/3 dla message_id=" << it->first << endl;
+    {
+        lock_guard printLock(_printMutex);
+        cout << "[KLIENT] Retransmisja " << pending.retryCount << "/3 dla message_id=" << it->first << endl;
+    }
 
     ++it;
 }
-

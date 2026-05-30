@@ -10,6 +10,7 @@
 #include <mutex>
 #include <map>
 #include <vector>
+#include <atomic>
 
 struct Session {
     bool helloDone = false;

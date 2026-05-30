@@ -15,7 +15,16 @@ namespace models {
     };
 
     inline void to_json(nlohmann::json &j, const Message &m) {
-        j = nlohmann::json{{"type", m._type}, {"message_id", m._message_id}, {"timestamp", m._timestamp}, {"session_token", m._session_token}, {"payload", m._payload}};
+        j = {
+            {"type", m._type},
+            {"message_id", m._message_id},
+            {"timestamp", m._timestamp},
+            {"payload", m._payload}
+        };
+
+        if (!m._session_token.empty()) {
+            j["session_token"] = m._session_token;
+        }
     }
 
     inline void from_json(const nlohmann::json &j, Message &m) {

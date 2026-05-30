@@ -26,6 +26,7 @@ add_executable(ncp_server
         src/server/MessageValidator.cpp
         src/server/RequestHandler.cpp
         src/server/UeSimulation.cpp
+        src/server/Logger.cpp
 )
 
 target_include_directories(ncp_server
@@ -41,9 +42,6 @@ add_executable(ncp_client
         src/network/TlsConnection.cpp
         src/protocol/JsonCoder.cpp
         src/client/CommandMapper.cpp
-        src/server/MessageValidator.cpp
-        src/server/RequestHandler.cpp
-        src/server/UeSimulation.cpp
 )
 
 target_include_directories(ncp_client

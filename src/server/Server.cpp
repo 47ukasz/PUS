@@ -1,6 +1,7 @@
 #include <server/Server.h>
 #include <network/TlsConnection.h>
 #include <protocol/Message.h>
+#include <server/Logger.h>
 
 #include <openssl/ssl.h>
 
@@ -11,6 +12,7 @@
 #include <unistd.h>
 #include <vector>
 #include <thread>
+#include <nlohmann/json.hpp>
 
 #include "protocol/JsonCoder.h"
 #include "server/RequestHandler.h"
@@ -39,6 +41,9 @@ SSL_CTX *Server::createServerContext() {
 Server::Server(int port, int backlog) : _port(port), _backlog(backlog), _simulation() {}
 
 void Server::start() {
+    Logger::init("logs/server.log");
+    Logger::info("Uruchamianie serwera NCP.");
+
     SSL_library_init();
     SSL_load_error_strings();
 
@@ -47,7 +52,7 @@ void Server::start() {
     _socket.bindTo(_port);
     _socket.listenForConnections(_backlog);
 
-    cout << "[SERWER] Nasłuchuje na porcie " << _port << " ..." << endl;
+    Logger::info("Serwer nasłuchuje na porcie " + to_string(_port) + ".");
 
     while (true) {
         TcpSocket client = _socket.acceptConnection();
@@ -76,7 +81,7 @@ void Server::start() {
 }
 
 void Server::handleClient(TlsConnection &client) {
-    cout << "[SERWER] Klient uzyskał połączenie TLS" << endl;
+    Logger::info("Klient uzyskał połączenie TLS.");
 
     Session session{};
     KeepAliveSession keepAlive;
@@ -93,7 +98,29 @@ void Server::handleClient(TlsConnection &client) {
                 break;
             }
 
-            cout << "[SERWER] Odebrano komunikat: " << rawRequest << endl;
+            string logRequest = rawRequest;
+
+            try {
+                nlohmann::json requestJson = nlohmann::json::parse(rawRequest);
+
+                if (requestJson.contains("type") && requestJson["type"] == "AUTH") {
+                    if (requestJson.contains("payload") &&
+                        requestJson["payload"].contains("password")) {
+                        requestJson["payload"]["password"] = "***";
+                    }
+                }
+
+                if (requestJson.contains("session_token")) {
+                    requestJson["session_token"] = "***";
+                }
+
+                logRequest = requestJson.dump();
+
+            } catch (...) {
+                logRequest = rawRequest;
+            }
+
+            Logger::info("Odebrano komunikat: " + logRequest);
 
             Message request = JsonCoder::deserialize(rawRequest);
 
@@ -105,7 +132,7 @@ void Server::handleClient(TlsConnection &client) {
                     keepAlive.waitingForPong = false;
                     keepAlive.failedPings = 0;
 
-                    cout << "[SERWER] Odebrano PONG od klienta." << endl;
+                    Logger::info("Odebrano PONG od klienta.");
                     continue;
                 }
             }
@@ -115,7 +142,7 @@ void Server::handleClient(TlsConnection &client) {
             for (Message& response : responses) {
                 string rawResponse = JsonCoder::serialize(response);
 
-                cout << "[SERWER] Wysłano odpowiedź: " << rawResponse << endl;
+                Logger::info("Wysłano odpowiedź: " + rawResponse);
 
                 lock_guard sendLock(sendMutex);
 
@@ -123,13 +150,13 @@ void Server::handleClient(TlsConnection &client) {
             }
 
             if (request._type == MessageType::BYE) {
-                cout << "[SERWER] Sesja zakończona przez klienta" << endl;
+                Logger::info("Sesja zakończona przez klienta.");
 
                 break;
             }
 
         } catch (const exception& e) {
-            cout << "[SERWER] Błąd obsługi klienta: " << e.what() << endl;
+            Logger::error(string("Błąd obsługi klienta: ") + e.what());
             break;
         }
     }
@@ -152,6 +179,11 @@ void Server::keepAliveLoop(TlsConnection& client, Session& session, mutex& sendM
         {
             lock_guard lock(keepAlive.mutex);
 
+            if (!session.authenticated) {
+                keepAlive.lastActivity = now;
+                continue;
+            }
+
             if (!keepAlive.waitingForPong && now - keepAlive.lastActivity >= idleTimeoutSeconds) {
 
                 Message ping{
@@ -172,7 +204,7 @@ void Server::keepAliveLoop(TlsConnection& client, Session& session, mutex& sendM
                         client.sendData(rawPing);
                     }
 
-                    cout << "[SERWER] Brak aktywności. Wysłano PING: " << rawPing << endl;
+                    Logger::info("Brak aktywności. Wysłano PING: " + rawPing);
 
                     keepAlive.waitingForPong = true;
                     keepAlive.pingSentAt = now;
@@ -188,13 +220,13 @@ void Server::keepAliveLoop(TlsConnection& client, Session& session, mutex& sendM
             if (keepAlive.waitingForPong && now - keepAlive.pingSentAt >= pongTimeoutSeconds) {
                 keepAlive.failedPings++;
 
-                cout << "[SERWER] Brak PONG. Nieudana próba: " << keepAlive.failedPings << "/" << maxFailedPings << endl;
+                Logger::warn("Brak PONG. Nieudana próba: " + to_string(keepAlive.failedPings) + "/" + to_string(maxFailedPings));
 
                 keepAlive.waitingForPong = false;
                 keepAlive.lastActivity = now;
 
                 if (keepAlive.failedPings >= maxFailedPings) {
-                    cout << "[SERWER] Przekroczono limit keep-alive. Zamykam sesję." << endl;
+                    Logger::warn("Przekroczono limit keep-alive. Zamykam sesję.");
 
                     session.active = false;
                     keepAlive.running = false;

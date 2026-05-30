@@ -2,6 +2,8 @@
 #include <server/ValidationException.h>
 #include <stdexcept>
 #include <string>
+#include <cstdlib>
+#include <ctime>
 
 using namespace models;
 using namespace std;
@@ -13,6 +15,19 @@ void MessageValidator::validate(Message &message) {
 
     if (message._timestamp <= 0) {
         throw ValidationException("MISSING_FIELD", "Missing or invalid field: timestamp.");
+    }
+
+    const long MAX_TIMESTAMP_DRIFT_SECONDS = 120;
+
+    long now = static_cast<long>(time(nullptr));
+    long messageTime = static_cast<long>(message._timestamp);
+    long diff = labs(now - messageTime);
+
+    if (diff > MAX_TIMESTAMP_DRIFT_SECONDS) {
+        throw ValidationException(
+            "INVALID_TIMESTAMP",
+            "Message timestamp is outside the allowed time window."
+        );
     }
 
     if (message._payload.is_null()) {
