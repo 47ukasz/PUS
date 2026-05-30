@@ -144,6 +144,7 @@ vector<Message> RequestHandler::handleRequest(Message& request, Session& session
                     Message finalResult = makeResponse(request, MessageType::RESULT, result);
 
                     vector<Message> responses = {ack, finalResult};
+
                     storeProcessedMessage(session, request, responses);
                     return responses;
 

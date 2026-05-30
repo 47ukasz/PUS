@@ -19,6 +19,16 @@ struct Session {
     std::map<std::string, std::vector<models::Message>> processedMessages;
 };
 
+struct KeepAliveSession {
+    std::mutex mutex;
+    std::atomic<bool> running{true};
+    int failedPings = 0;
+    bool waitingForPong = false;
+
+    time_t lastActivity = time(nullptr);
+    time_t pingSentAt = 0;
+};
+
 class Server {
     private:
         int _port;
@@ -28,6 +38,7 @@ class Server {
         std::mutex _simulationMutex;
 
         void handleClient(TlsConnection &client);
+        void keepAliveLoop(TlsConnection& client, Session& session, std::mutex& sendMutex, KeepAliveSession& keepAlive);
 
     public:
         Server(int port, int backlog);

@@ -13,7 +13,6 @@
 #include <thread>
 
 #include "protocol/JsonCoder.h"
-#include "protocol/TimeoutManager.h"
 #include "server/RequestHandler.h"
 
 using namespace std;
@@ -79,20 +78,14 @@ void Server::start() {
 void Server::handleClient(TlsConnection &client) {
     cout << "[SERWER] Klient uzyskał połączenie TLS" << endl;
 
-    TimeoutConfig config;
-    TimeoutManager timeoutManager(config);
     Session session{};
+    KeepAliveSession keepAlive;
+    mutex sendMutex;
+
+    thread keepAliveThread(&Server::keepAliveLoop, this, ref(client), ref(session), ref(sendMutex), ref(keepAlive));
 
     while (session.active) {
         try {
-            if (!session.helloDone) {
-                client.setReceiveTimeout(timeoutManager.timeoutFor(TimeoutType::Hello));
-            } else if (!session.authenticated) {
-                client.setReceiveTimeout(timeoutManager.timeoutFor(TimeoutType::Auth));
-            }else {
-                client.setReceiveTimeout(timeoutManager.timeoutFor(TimeoutType::Idle));
-            }
-
             string rawRequest = client.receiveData(4096);
 
             if (rawRequest.empty()) {
@@ -103,27 +96,113 @@ void Server::handleClient(TlsConnection &client) {
             cout << "[SERWER] Odebrano komunikat: " << rawRequest << endl;
 
             Message request = JsonCoder::deserialize(rawRequest);
+
+            {
+                lock_guard lock(keepAlive.mutex);
+                keepAlive.lastActivity = time(nullptr);
+
+                if (request._type == MessageType::PONG) {
+                    keepAlive.waitingForPong = false;
+                    keepAlive.failedPings = 0;
+
+                    cout << "[SERWER] Odebrano PONG od klienta." << endl;
+                    continue;
+                }
+            }
+
             vector<Message> responses = RequestHandler::handleRequest(request, session, _simulation, _simulationMutex);
-            
+
             for (Message& response : responses) {
                 string rawResponse = JsonCoder::serialize(response);
+
                 cout << "[SERWER] Wysłano odpowiedź: " << rawResponse << endl;
+
+                lock_guard sendLock(sendMutex);
+
                 client.sendData(rawResponse);
             }
 
             if (request._type == MessageType::BYE) {
                 cout << "[SERWER] Sesja zakończona przez klienta" << endl;
+
                 break;
             }
 
         } catch (const exception& e) {
-            if (string(e.what()) == "TIMEOUT") {
-                cout << "[SERWER] Timeout sesji. Zamykanie połączenia." << endl;
-            } else {
-                cout << "[SERWER] Błąd obsługi klienta: " << e.what() << endl;
-            }
-
+            cout << "[SERWER] Błąd obsługi klienta: " << e.what() << endl;
             break;
         }
+    }
+
+    keepAlive.running = false;
+
+    if (keepAliveThread.joinable()) {
+        keepAliveThread.join();
+    }
+}
+
+void Server::keepAliveLoop(TlsConnection& client, Session& session, mutex& sendMutex, KeepAliveSession& keepAlive) {
+    int idleTimeoutSeconds = 15;
+    int pongTimeoutSeconds = 5;
+    int maxFailedPings = 3;
+
+    while (keepAlive.running && session.active) {
+        time_t now = time(nullptr);
+
+        {
+            lock_guard lock(keepAlive.mutex);
+
+            if (!keepAlive.waitingForPong && now - keepAlive.lastActivity >= idleTimeoutSeconds) {
+
+                Message ping{
+                    MessageType::PING,
+                    "server_ping_" + to_string(now),
+                    now,
+                    session.sessionToken,
+                    {
+                        {"message", "PING od serwera"}
+                    }
+                };
+
+                string rawPing = JsonCoder::serialize(ping);
+
+                try {
+                    {
+                        lock_guard sendLock(sendMutex);
+                        client.sendData(rawPing);
+                    }
+
+                    cout << "[SERWER] Brak aktywności. Wysłano PING: " << rawPing << endl;
+
+                    keepAlive.waitingForPong = true;
+                    keepAlive.pingSentAt = now;
+                } catch (const exception& e) {
+                    cout << "[SERWER] Błąd wysyłania PING: " << e.what() << endl;
+
+                    session.active = false;
+                    keepAlive.running = false;
+                    break;
+                }
+            }
+
+            if (keepAlive.waitingForPong && now - keepAlive.pingSentAt >= pongTimeoutSeconds) {
+                keepAlive.failedPings++;
+
+                cout << "[SERWER] Brak PONG. Nieudana próba: " << keepAlive.failedPings << "/" << maxFailedPings << endl;
+
+                keepAlive.waitingForPong = false;
+                keepAlive.lastActivity = now;
+
+                if (keepAlive.failedPings >= maxFailedPings) {
+                    cout << "[SERWER] Przekroczono limit keep-alive. Zamykam sesję." << endl;
+
+                    session.active = false;
+                    keepAlive.running = false;
+                    break;
+                }
+            }
+        }
+
+        this_thread::sleep_for(chrono::milliseconds(200));
     }
 }

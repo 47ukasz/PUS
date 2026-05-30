@@ -4,11 +4,12 @@
 #include <memory>
 #include <openssl/types.h>
 #include <string>
+#include <thread>
 
+#include "PendingRequest.h"
 #include "network/TcpSocket.h"
 #include "network/TlsConnection.h"
 #include "protocol/Message.h"
-#include "protocol/TimeoutConfig.h"
 
 class Client {
     private:
@@ -22,12 +23,33 @@ class Client {
         bool _authenticated = false;
         std::string _sessionToken;
 
+        std::map<std::string, PendingRequest> _pendingRequests;
+
+        std::thread _receiverThread;
+        std::atomic<bool> _isReceiverRunning { false };
+        std::mutex _sendMutex;
+        std::mutex _printMutex;
+        std::mutex _pendingMutex;
+
+        std::thread _timeoutThread;
+        bool _isTimeoutRunning { false };
+
+        void startTimeoutManager();
+        void stopTimeoutManager();
+        void timeoutLoop();
+
+        void handleRequestTimeout(std::map<std::string, PendingRequest>::iterator& it, time_t now);
         void handleCommand(std::string& command);
+        void handleResponse(std::string& rawResponse);
+
         void connectToServer(const std::string& host, int port);
-        void sendAndPrintResponse(models::Message& message);
+        void sendMessage(models::Message& message);
 
-        TimeoutType expectedTimeoutFor(MessageType type);
+        void startReceiver();
+        void stopReceiver();
+        void receiverLoop();
 
+        void updatePendingRequest(models::Message& response);
     public:
         Client(std::string host, int port);
         ~Client();
