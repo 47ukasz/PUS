@@ -2,6 +2,7 @@
 #include <network/TlsConnection.h>
 #include <protocol/Message.h>
 #include <server/Logger.h>
+#include <server/AuthValidator.h>
 
 #include <openssl/ssl.h>
 
@@ -66,6 +67,9 @@ SSL_CTX *Server::createServerContext() {
 Server::Server(int port, int backlog) : _port(port), _backlog(backlog), _simulation() {}
 
 void Server::start() {
+    string usersPath = "config/users.json";
+    AuthValidator::loadUsers(usersPath);
+
     Logger::init("logs/server.log");
     Logger::info("Uruchamianie serwera NCP.");
 

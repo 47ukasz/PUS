@@ -2,6 +2,7 @@
 #include <server/MessageValidator.h>
 #include <server/ValidationException.h>
 #include <server/Logger.h>
+#include <server/AuthValidator.h>
 
 #include <ctime>
 #include <string>
@@ -75,7 +76,7 @@ vector<Message> RequestHandler::handleRequest(Message& request, Session& session
                 string login = request._payload.at("login");
                 string password = request._payload.at("password");
 
-                if (login == "admin" && password == "admin") {
+                if (AuthValidator::verify(login, password)) {
                     session.authenticated = true;
                     session.sessionToken = generateSessionToken();
 

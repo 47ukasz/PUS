@@ -7,6 +7,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <cstdlib>
+#include <filesystem>
 
 using namespace models;
 using namespace std;
@@ -18,7 +19,11 @@ SSL_CTX *Client::createClientContext() {
         throw runtime_error("Nie udało się utworzyć kontekstu po stronie klienta.");
     }
 
-    SSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, nullptr);
+    SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, nullptr);
+
+    if (SSL_CTX_load_verify_locations(ctx, "certs/rootCA.crt", nullptr) != 1) {
+        throw runtime_error("Nie udało się wczytać certyfikatu CA.");
+    }
 
     return ctx;
 }

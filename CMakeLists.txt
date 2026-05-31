@@ -27,6 +27,7 @@ add_executable(ncp_server
         src/server/RequestHandler.cpp
         src/server/UeSimulation.cpp
         src/server/Logger.cpp
+        src/server/AuthValidator.cpp
 )
 
 target_include_directories(ncp_server
@@ -42,6 +43,8 @@ add_executable(ncp_client
         src/network/TlsConnection.cpp
         src/protocol/JsonCoder.cpp
         src/client/CommandMapper.cpp
+        include/server/AuthValidator.h
+        src/server/AuthValidator.cpp
 )
 
 target_include_directories(ncp_client
@@ -51,3 +54,4 @@ target_include_directories(ncp_client
 target_link_libraries(ncp_client PRIVATE OpenSSL::SSL OpenSSL::Crypto nlohmann_json::nlohmann_json)
 
 file(COPY ${CMAKE_SOURCE_DIR}/certs DESTINATION ${CMAKE_BINARY_DIR})
+file(COPY ${CMAKE_SOURCE_DIR}/config DESTINATION ${CMAKE_BINARY_DIR})
