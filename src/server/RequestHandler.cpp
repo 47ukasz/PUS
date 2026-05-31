@@ -24,6 +24,21 @@ vector<Message> RequestHandler::handleRequest(Message& request, Session& session
             return session.processedMessages[request._message_id];
         }
 
+        if (isRateLimited(session)) {
+            Logger::warn("Przekroczono limit żądań dla sesji.");
+
+            vector<Message> responses = {
+                makeError(
+                    request,
+                    "RATE_LIMIT_EXCEEDED",
+                    "Too many requests in the current time window."
+                )
+            };
+
+            storeProcessedMessage(session, request, responses);
+            return responses;
+        }
+
         switch (request._type) {
             case MessageType::HELLO: {
                 if (session.helloDone) {
@@ -449,4 +464,20 @@ void RequestHandler::storeProcessedMessage(Session& session, Message& request, c
     if (!request._message_id.empty()) {
         session.processedMessages[request._message_id] = responses;
     }
+}
+
+bool RequestHandler::isRateLimited(Session& session) {
+    const int RATE_LIMIT_WINDOW_SECONDS = 60;
+    const int RATE_LIMIT_MAX_REQUESTS = 60;
+
+    time_t now = time(nullptr);
+
+    if (now - session.rateWindowStart >= RATE_LIMIT_WINDOW_SECONDS) {
+        session.rateWindowStart = now;
+        session.requestsInCurrentWindow = 0;
+    }
+
+    session.requestsInCurrentWindow++;
+
+    return session.requestsInCurrentWindow > RATE_LIMIT_MAX_REQUESTS;
 }

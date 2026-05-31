@@ -15,6 +15,7 @@ private:
     static models::Message makeError(models::Message& request, std::string errorCode, std::string errorMessage);
     static std::string generateSessionToken();
     static bool isAuthorized(models::Message& request, Session& session);
+    static bool isRateLimited(Session& session);
 
     static bool hasProcessedMessage(Session& session, models::Message& request);
     static void storeProcessedMessage(

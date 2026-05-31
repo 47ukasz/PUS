@@ -140,3 +140,13 @@ int TcpSocket::releaseSocketFd() {
 bool TcpSocket::isSocketValid() {
     return _socketFd >= 0;
 }
+
+void TcpSocket::recreateSocket() {
+    closeSocket();
+
+    _socketFd = socket(AF_INET, SOCK_STREAM, 0);
+
+    if (_socketFd < 0) {
+        throw runtime_error(strerror(errno));
+    }
+}

@@ -26,9 +26,30 @@ SSL_CTX *Client::createClientContext() {
 Client::Client(string host, int port) : _host(host), _port(port) {}
 
 Client::~Client() {
+    stopWorkerThreads();
+
+    if (_tls) {
+        _tls.reset();
+    }
+
     if (_ctx) {
         SSL_CTX_free(_ctx);
         _ctx = nullptr;
+    }
+}
+
+void Client::stopWorkerThreads() {
+    _isReceiverRunning = false;
+    _isTimeoutRunning = false;
+
+    if (_receiverThread.joinable() &&
+        _receiverThread.get_id() != std::this_thread::get_id()) {
+        _receiverThread.join();
+    }
+
+    if (_timeoutThread.joinable() &&
+        _timeoutThread.get_id() != std::this_thread::get_id()) {
+        _timeoutThread.join();
     }
 }
 
@@ -39,11 +60,24 @@ void Client::connectToServer(const string& host, int port) {
         return;
     }
 
+    stopWorkerThreads();
+
     SSL_library_init();
     SSL_load_error_strings();
 
     _host = host;
     _port = port;
+
+    if (_tls) {
+        _tls.reset();
+    }
+
+    if (_ctx) {
+        SSL_CTX_free(_ctx);
+        _ctx = nullptr;
+    }
+
+    _socket.recreateSocket();
 
     _ctx = createClientContext();
 
@@ -54,6 +88,14 @@ void Client::connectToServer(const string& host, int port) {
     _tls->connectTls();
 
     _connected = true;
+    _authenticated = false;
+    _sessionToken.clear();
+    _exitAfterSessionClosed = false;
+
+    {
+        lock_guard lock(_pendingMutex);
+        _pendingRequests.clear();
+    }
 
     {
         lock_guard lock(_printMutex);
@@ -137,6 +179,12 @@ void Client::handleCommand(string &command) {
     Message message = parsed.message;
 
     if (message._type == MessageType::HELLO) {
+        if (_connected) {
+            lock_guard lock(_printMutex);
+            cout << "[KLIENT] Połączenie jest już aktywne." << endl;
+            return;
+        }
+
         connectToServer(parsed.host, parsed.port);
         sendMessage(message);
         return;
@@ -196,8 +244,8 @@ void Client::sendMessage(models::Message &message) {
 }
 
 void Client::startReceiver() {
-    if (_isReceiverRunning) {
-        return;
+    if (_receiverThread.joinable()) {
+        _receiverThread.join();
     }
 
     _isReceiverRunning = true;
@@ -295,13 +343,38 @@ void Client::receiverLoop() {
             string rawResponse = _tls->receiveData(4096);
 
             handleResponse(rawResponse);
+
         } catch (const std::exception& e) {
             if (_isReceiverRunning) {
-                lock_guard lock(_printMutex);
-                cout << "[ERROR] Błąd odbierania: " << e.what() << endl;
+                {
+                    lock_guard lock(_printMutex);
+
+                    string error = e.what();
+
+                    if (error == "CONNECTION_CLOSED") {
+                        cout << "[KLIENT] Połączenie z serwerem zostało zamknięte." << endl;
+                    } else if (error == "TIMEOUT") {
+                        cout << "[KLIENT] Timeout odbierania danych z serwera." << endl;
+                    } else {
+                        cout << "[ERROR] Błąd odbierania: " << error << endl;
+                    }
+
+                    cout << "[KLIENT] Użyj connect <host> <port>, aby rozpocząć nową sesję." << endl;
+                }
             }
 
+            {
+                lock_guard lock(_pendingMutex);
+                _pendingRequests.clear();
+            }
+
+            _connected = false;
+            _authenticated = false;
+            _sessionToken.clear();
             _isReceiverRunning = false;
+            _isTimeoutRunning = false;
+
+            _socket.closeSocket();
 
             break;
         }
@@ -309,8 +382,8 @@ void Client::receiverLoop() {
 }
 
 void Client::startTimeoutManager() {
-    if (_isTimeoutRunning) {
-        return;
+    if (_timeoutThread.joinable()) {
+        _timeoutThread.join();
     }
 
     _isTimeoutRunning = true;

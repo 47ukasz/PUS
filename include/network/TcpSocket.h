@@ -27,6 +27,7 @@ public:
 
     int getSocketFd();
     bool isSocketValid();
+    void recreateSocket();
     int releaseSocketFd();
 };
 

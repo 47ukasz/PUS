@@ -11,12 +11,17 @@
 #include <map>
 #include <vector>
 #include <atomic>
+#include <ctime>
 
 struct Session {
     bool helloDone = false;
     bool authenticated = false;
     std::string sessionToken;
     bool active = true;
+
+    time_t rateWindowStart = time(nullptr);
+    int requestsInCurrentWindow = 0;
+
     std::map<std::string, std::vector<models::Message>> processedMessages;
 };
 

@@ -20,6 +20,31 @@
 using namespace std;
 using namespace models;
 
+static string maskSensitiveJson(const string& rawJson) {
+    try {
+        nlohmann::json jsonData = nlohmann::json::parse(rawJson);
+
+        if (jsonData.contains("session_token")) {
+            jsonData["session_token"] = "***";
+        }
+
+        if (jsonData.contains("payload") && jsonData["payload"].is_object()) {
+            if (jsonData["payload"].contains("password")) {
+                jsonData["payload"]["password"] = "***";
+            }
+
+            if (jsonData["payload"].contains("session_token")) {
+                jsonData["payload"]["session_token"] = "***";
+            }
+        }
+
+        return jsonData.dump();
+
+    } catch (...) {
+        return rawJson;
+    }
+}
+
 SSL_CTX *Server::createServerContext() {
     SSL_CTX *ctx = SSL_CTX_new(TLS_server_method());
 
@@ -87,6 +112,8 @@ void Server::handleClient(TlsConnection &client) {
     KeepAliveSession keepAlive;
     mutex sendMutex;
 
+    client.setReceiveTimeout(5);
+
     thread keepAliveThread(&Server::keepAliveLoop, this, ref(client), ref(session), ref(sendMutex), ref(keepAlive));
 
     while (session.active) {
@@ -98,29 +125,7 @@ void Server::handleClient(TlsConnection &client) {
                 break;
             }
 
-            string logRequest = rawRequest;
-
-            try {
-                nlohmann::json requestJson = nlohmann::json::parse(rawRequest);
-
-                if (requestJson.contains("type") && requestJson["type"] == "AUTH") {
-                    if (requestJson.contains("payload") &&
-                        requestJson["payload"].contains("password")) {
-                        requestJson["payload"]["password"] = "***";
-                    }
-                }
-
-                if (requestJson.contains("session_token")) {
-                    requestJson["session_token"] = "***";
-                }
-
-                logRequest = requestJson.dump();
-
-            } catch (...) {
-                logRequest = rawRequest;
-            }
-
-            Logger::info("Odebrano komunikat: " + logRequest);
+            Logger::info("Odebrano komunikat: " + maskSensitiveJson(rawRequest));
 
             Message request = JsonCoder::deserialize(rawRequest);
 
@@ -137,16 +142,29 @@ void Server::handleClient(TlsConnection &client) {
                 }
             }
 
+            bool wasHelloDone = session.helloDone;
+            bool wasAuthenticated = session.authenticated;
+
             vector<Message> responses = RequestHandler::handleRequest(request, session, _simulation, _simulationMutex);
 
             for (Message& response : responses) {
                 string rawResponse = JsonCoder::serialize(response);
 
-                Logger::info("Wysłano odpowiedź: " + rawResponse);
+                Logger::info("Wysłano odpowiedź: " + maskSensitiveJson(rawResponse));
 
                 lock_guard sendLock(sendMutex);
 
                 client.sendData(rawResponse);
+            }
+
+            if (!wasHelloDone && session.helloDone && !session.authenticated) {
+                client.setReceiveTimeout(60);
+                Logger::info("HELLO zaakceptowane. Ustawiono timeout AUTH na 60 sekund.");
+            }
+
+            if (!wasAuthenticated && session.authenticated) {
+                client.clearReceiveTimeout();
+                Logger::info("AUTH zakończone powodzeniem. Wyłączono timeout odbioru dla aktywnej sesji.");
             }
 
             if (request._type == MessageType::BYE) {
@@ -155,10 +173,32 @@ void Server::handleClient(TlsConnection &client) {
                 break;
             }
 
-        } catch (const exception& e) {
-            Logger::error(string("Błąd obsługi klienta: ") + e.what());
-            break;
-        }
+                } catch (const runtime_error& e) {
+                    string error = e.what();
+
+                    if (error == "TIMEOUT") {
+                        if (!session.helloDone) {
+                            Logger::warn("Timeout HELLO. Klient nie wysłał HELLO w wymaganym czasie. Zamykam sesję.");
+                            session.active = false;
+                            break;
+                        }
+
+                        if (session.helloDone && !session.authenticated) {
+                            Logger::warn("Timeout AUTH. Klient nie uwierzytelnił się w wymaganym czasie. Zamykam sesję.");
+                            session.active = false;
+                            break;
+                        }
+
+                        continue;
+                    }
+
+                    Logger::error(string("Błąd obsługi klienta: ") + error);
+                    break;
+
+                } catch (const exception& e) {
+                    Logger::error(string("Błąd obsługi klienta: ") + e.what());
+                    break;
+                }
     }
 
     keepAlive.running = false;

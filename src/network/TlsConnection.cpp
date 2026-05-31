@@ -78,21 +78,26 @@ void TlsConnection::sendData(string &data) {
 
 string TlsConnection::receiveData(size_t bufferSize) {
     string buffer(bufferSize, '\0');
-    int returnValue = 0;
 
-    returnValue = SSL_read(_ssl, buffer.data(), bufferSize);
+    int returnValue = SSL_read(_ssl, buffer.data(), bufferSize);
 
-    if (returnValue <= 0) {
-        int sslError = SSL_get_error(_ssl, returnValue);
-
-        if (sslError == SSL_ERROR_WANT_READ || errno == EAGAIN || errno == EWOULDBLOCK) {
-            throw runtime_error("TIMEOUT");
-        }
-
-        throw runtime_error(strerror(errno));
-
+    if (returnValue > 0) {
+        buffer.resize(returnValue);
+        return buffer;
     }
 
-    buffer.resize(returnValue);
-    return buffer;
+    int sslError = SSL_get_error(_ssl, returnValue);
+
+    if (sslError == SSL_ERROR_WANT_READ ||
+        sslError == SSL_ERROR_WANT_WRITE ||
+        errno == EAGAIN ||
+        errno == EWOULDBLOCK) {
+        throw runtime_error("TIMEOUT");
+    }
+
+    if (sslError == SSL_ERROR_ZERO_RETURN || returnValue == 0) {
+        throw runtime_error("CONNECTION_CLOSED");
+    }
+
+    throw runtime_error("TLS_READ_ERROR");
 }

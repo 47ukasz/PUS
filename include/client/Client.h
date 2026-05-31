@@ -48,6 +48,7 @@ class Client {
 
         void connectToServer(const std::string& host, int port);
         void sendMessage(models::Message& message);
+        void stopWorkerThreads();
 
         void startReceiver();
         void stopReceiver();
