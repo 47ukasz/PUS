@@ -579,7 +579,9 @@ sudo apt install build-essential cmake libssl-dev openssl
 
 ## 18. Certyfikaty TLS
 
-Aplikacja wykorzystuje TLS do zabezpieczenia komunikacji między klientem a serwerem. Serwer korzysta z certyfikatu oraz klucza prywatnego, natomiast klient weryfikuje certyfikat serwera na podstawie lokalnego certyfikatu CA.
+Projekt wykorzystuje TLS do zabezpieczenia komunikacji między klientem a serwerem. Serwer korzysta z certyfikatu oraz klucza prywatnego, natomiast klient weryfikuje certyfikat serwera na podstawie lokalnego certyfikatu CA.
+
+Katalog `certs` jest ignorowany przez `.gitignore`, dlatego po sklonowaniu lub pobraniu projektu z GitHuba należy wygenerować certyfikaty lokalnie.
 
 W katalogu głównym projektu powinien znajdować się katalog:
 
@@ -600,40 +602,72 @@ certs/domain.ext
 Znaczenie plików:
 
 ```text
-rootCA.crt   - certyfikat lokalnego urzędu certyfikacji używany przez klienta do weryfikacji serwera
-rootCA.key   - klucz prywatny lokalnego CA, używany tylko do podpisania certyfikatu serwera
+rootCA.crt   - certyfikat lokalnego CA, używany przez klienta do weryfikacji certyfikatu serwera
+rootCA.key   - klucz prywatny lokalnego CA, używany do podpisania certyfikatu serwera
 server.crt   - certyfikat serwera używany przez aplikację serwera
 server.key   - klucz prywatny serwera
-domain.ext   - plik rozszerzeń certyfikatu, zawierający m.in. Subject Alternative Name dla localhost/127.0.0.1
+domain.ext   - plik rozszerzeń certyfikatu serwera
 ```
 
-Katalog `certs` może być ignorowany przez `.gitignore`, dlatego po pobraniu projektu certyfikaty należy wygenerować lokalnie.
+### 18.1 Generowanie certyfikatów
 
-### Generowanie certyfikatów
-
-Z poziomu katalogu głównego projektu wykonaj:
+Z poziomu katalogu głównego projektu należy utworzyć katalog `certs`:
 
 ```bash
 mkdir -p certs
+cd certs
 ```
 
-Następnie wygeneruj lokalny certyfikat CA:
+Następnie należy wygenerować lokalne CA:
 
 ```bash
-openssl genrsa -out certs/rootCA.key 2048
-
-openssl req -x509 -new -nodes \
-  -key certs/rootCA.key \
-  -sha256 \
-  -days 365 \
-  -out certs/rootCA.crt \
-  -subj "/C=PL/ST=Malopolskie/L=Krakow/O=NCP/OU=Project/CN=NCP-Local-CA"
+openssl req -x509 -sha256 -days 1825 \
+  -newkey rsa:2048 \
+  -nodes \
+  -keyout rootCA.key \
+  -out rootCA.crt
 ```
 
-Utwórz plik rozszerzeń certyfikatu serwera:
+Podczas generowania można podać dowolne dane testowe. Przykładowo:
+
+```text
+Country Name: PL
+State or Province Name: Malopolskie
+Locality Name: Krakow
+Organization Name: NCP
+Organizational Unit Name: Project
+Common Name: NCP Local CA
+```
+
+Następnie należy wygenerować klucz prywatny serwera:
 
 ```bash
-cat > certs/domain.ext <<EOF
+openssl genrsa -out server.key 2048
+```
+
+Na podstawie klucza serwera należy wygenerować żądanie podpisania certyfikatu:
+
+```bash
+openssl req -new \
+  -key server.key \
+  -out server.csr
+```
+
+Podczas generowania można podać przykładowe dane:
+
+```text
+Country Name: PL
+State or Province Name: Malopolskie
+Locality Name: Krakow
+Organization Name: NCP
+Organizational Unit Name: Server
+Common Name: localhost
+```
+
+Następnie należy utworzyć plik rozszerzeń certyfikatu serwera:
+
+```bash
+cat > domain.ext <<EOF
 authorityKeyIdentifier=keyid,issuer
 basicConstraints=CA:FALSE
 keyUsage=digitalSignature, nonRepudiation, keyEncipherment, dataEncipherment
@@ -645,63 +679,139 @@ IP.1 = 127.0.0.1
 EOF
 ```
 
-Wygeneruj klucz serwera oraz żądanie podpisania certyfikatu:
-
-```bash
-openssl genrsa -out certs/server.key 2048
-
-openssl req -new \
-  -key certs/server.key \
-  -out certs/server.csr \
-  -subj "/C=PL/ST=Malopolskie/L=Krakow/O=NCP/OU=Server/CN=localhost"
-```
-
-Podpisz certyfikat serwera lokalnym CA:
+Na końcu należy podpisać certyfikat serwera lokalnym CA:
 
 ```bash
 openssl x509 -req \
-  -in certs/server.csr \
-  -CA certs/rootCA.crt \
-  -CAkey certs/rootCA.key \
-  -CAcreateserial \
-  -out certs/server.crt \
+  -CA rootCA.crt \
+  -CAkey rootCA.key \
+  -in server.csr \
+  -out server.crt \
   -days 365 \
-  -sha256 \
-  -extfile certs/domain.ext
+  -CAcreateserial \
+  -extfile domain.ext
 ```
 
-Po wygenerowaniu certyfikatów w katalogu `certs` powinny znajdować się co najmniej:
+Po wykonaniu tych poleceń w katalogu `certs` powinny znajdować się między innymi:
 
 ```text
 rootCA.crt
 rootCA.key
+server.key
+server.csr
+server.crt
+domain.ext
+rootCA.srl
+```
+
+Do działania aplikacji wymagane są przede wszystkim:
+
+```text
+rootCA.crt
 server.crt
 server.key
 domain.ext
 ```
 
-Plik `server.csr` oraz `rootCA.srl` mogą pozostać w katalogu jako pliki pomocnicze, ale nie są wymagane do działania aplikacji.
+Pliki `server.csr` oraz `rootCA.srl` są plikami pomocniczymi i nie są wymagane do uruchomienia aplikacji.
 
-### Użycie certyfikatów w aplikacji
+### 18.2 Przeładowanie CMake
 
-Serwer korzysta z:
+Po wygenerowaniu certyfikatów należy wrócić do katalogu głównego projektu:
+
+```bash
+cd ..
+```
+
+Następnie należy ponownie skonfigurować i zbudować projekt, aby katalog `certs` został skopiowany do katalogu build:
+
+```bash
+rm -rf build
+mkdir build
+cd build
+cmake ..
+cmake --build .
+```
+
+Jeżeli projekt jest uruchamiany w CLion, należy wykonać opcję:
+
+```text
+Reload CMake Project
+```
+
+albo usunąć katalog `cmake-build-debug` i pozwolić środowisku wygenerować go ponownie.
+
+### 18.3 Sprawdzenie certyfikatów po zbudowaniu projektu
+
+Po zbudowaniu projektu w katalogu `build` powinien znajdować się katalog:
+
+```text
+build/certs/
+```
+
+Można to sprawdzić poleceniem:
+
+```bash
+ls certs
+```
+
+W katalogu powinny być widoczne między innymi:
+
+```text
+rootCA.crt
+server.crt
+server.key
+domain.ext
+```
+
+Serwer korzysta z plików:
 
 ```text
 certs/server.crt
 certs/server.key
 ```
 
-Klient korzysta z:
+Klient korzysta z pliku:
 
 ```text
 certs/rootCA.crt
 ```
 
-Oznacza to, że klient weryfikuje certyfikat serwera na podstawie lokalnego certyfikatu CA. Dzięki temu połączenie TLS zapewnia nie tylko szyfrowanie transmisji, ale również sprawdzenie, czy klient łączy się z serwerem posiadającym certyfikat podpisany przez zaufane lokalne CA.
+Oznacza to, że klient weryfikuje certyfikat serwera na podstawie lokalnego certyfikatu CA.
 
-### Uwaga
+### 18.4 Uruchomienie po wygenerowaniu certyfikatów
 
-Certyfikaty generowane powyższymi poleceniami są certyfikatami testowymi przeznaczonymi do uruchomienia projektu lokalnie. W środowisku produkcyjnym należałoby użyć certyfikatów wystawionych przez zaufany urząd certyfikacji albo odpowiednio zarządzaną infrastrukturę PKI.
+Po poprawnym wygenerowaniu certyfikatów i zbudowaniu projektu można uruchomić serwer:
+
+```bash
+./ncp_server
+```
+
+W drugim terminalu można uruchomić klienta:
+
+```bash
+./ncp_client
+```
+
+Przykładowa sesja:
+
+```text
+connect 127.0.0.1 8080
+login admin admin
+status UE_01
+attach UE_01
+status UE_01
+detach UE_01
+stats
+reset
+exit
+```
+
+### 18.5 Uwaga
+
+Certyfikaty generowane powyższymi poleceniami są certyfikatami testowymi przeznaczonymi do lokalnego uruchomienia projektu. Nie należy traktować ich jako certyfikatów produkcyjnych.
+
+W środowisku produkcyjnym należałoby użyć certyfikatów wystawionych przez zaufany urząd certyfikacji albo odpowiednio zarządzaną infrastrukturę PKI.
 
 ---
 
