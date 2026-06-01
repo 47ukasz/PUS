@@ -213,8 +213,10 @@ void Server::handleClient(TlsConnection &client) {
 }
 
 void Server::keepAliveLoop(TlsConnection& client, Session& session, mutex& sendMutex, KeepAliveSession& keepAlive) {
-    int idleTimeoutSeconds = 15;
-    int pongTimeoutSeconds = 5;
+    // int idleTimeoutSeconds = 15;
+    // int pongTimeoutSeconds = 5;
+    int idleTimeoutSeconds = 60;
+    int pongTimeoutSeconds = 60;
     int maxFailedPings = 3;
 
     while (keepAlive.running && session.active) {

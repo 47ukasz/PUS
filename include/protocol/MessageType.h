@@ -18,7 +18,8 @@ enum class MessageType {
     ERROR,
     PING,
     PONG,
-    BYE
+    BYE,
+    VALIDATION_TEST
 };
 
 NLOHMANN_JSON_SERIALIZE_ENUM(MessageType, {
@@ -36,7 +37,8 @@ NLOHMANN_JSON_SERIALIZE_ENUM(MessageType, {
     {MessageType::ERROR, "ERROR"},
     {MessageType::PING, "PING"},
     {MessageType::PONG, "PONG"},
-    {MessageType::BYE, "BYE"}
+    {MessageType::BYE, "BYE"},
+    {MessageType::VALIDATION_TEST, "VALIDATION_TEST"}
 })
 
 #endif //NCP_MESSAGETYPE_H

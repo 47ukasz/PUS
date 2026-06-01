@@ -10,7 +10,7 @@ using namespace models;
 
 int main() {
     try {
-        Client client("127.0.0.1", 8080);
+        Client client;
 
         client.run();
     } catch (const exception& e) {

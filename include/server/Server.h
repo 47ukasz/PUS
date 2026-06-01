@@ -18,6 +18,7 @@ struct Session {
     bool authenticated = false;
     std::string sessionToken;
     bool active = true;
+    int failedAuthAttempts = 0;
 
     time_t rateWindowStart = time(nullptr);
     int requestsInCurrentWindow = 0;

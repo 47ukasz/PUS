@@ -17,6 +17,8 @@ using namespace models;
 using namespace std;
 
 vector<Message> RequestHandler::handleRequest(Message& request, Session& session, UeSimulation& simulation, mutex& simulationMutex) {
+    const int MAX_AUTH_ATTEMPTS = 5;
+
     try {
         MessageValidator::validate(request);
 
@@ -26,7 +28,7 @@ vector<Message> RequestHandler::handleRequest(Message& request, Session& session
         }
 
         if (isRateLimited(session)) {
-            Logger::warn("Przekroczono limit żądań dla sesji.");
+            Logger::warn("Przekroczono limit żądań dla sesji. Zamykam sesję");
 
             vector<Message> responses = {
                 makeError(
@@ -37,6 +39,7 @@ vector<Message> RequestHandler::handleRequest(Message& request, Session& session
             };
 
             storeProcessedMessage(session, request, responses);
+            session.active = false;
             return responses;
         }
 
@@ -92,7 +95,14 @@ vector<Message> RequestHandler::handleRequest(Message& request, Session& session
                     return responses;
                 }
 
-                Logger::warn("AUTH_FAIL dla użytkownika: " + login);
+                session.failedAuthAttempts++;
+                Logger::warn("AUTH_FAIL dla użytkownika: " + login + ". Próba " + to_string(session.failedAuthAttempts) + "/5");
+
+                if (session.failedAuthAttempts >= MAX_AUTH_ATTEMPTS) {
+                    Logger::warn("Przekroczono limit błędnych prób logowania. Zamykam sesję.");
+
+                    session.active = false;
+                }
 
                 vector<Message> responses = {
                     makeResponse(request, MessageType::AUTH_FAIL, {
@@ -469,7 +479,7 @@ void RequestHandler::storeProcessedMessage(Session& session, Message& request, c
 
 bool RequestHandler::isRateLimited(Session& session) {
     const int RATE_LIMIT_WINDOW_SECONDS = 60;
-    const int RATE_LIMIT_MAX_REQUESTS = 60;
+    const int RATE_LIMIT_MAX_REQUESTS = 5;
 
     time_t now = time(nullptr);
 

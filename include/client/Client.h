@@ -38,6 +38,8 @@ class Client {
         std::thread _timeoutThread;
         bool _isTimeoutRunning { false };
 
+        std::string _lastMessage;
+
         void startTimeoutManager();
         void stopTimeoutManager();
         void timeoutLoop();
@@ -56,7 +58,7 @@ class Client {
 
         void updatePendingRequest(models::Message& response);
     public:
-        Client(std::string host, int port);
+        Client();
         ~Client();
         void run();
 

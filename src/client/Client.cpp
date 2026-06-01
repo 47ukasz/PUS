@@ -28,7 +28,7 @@ SSL_CTX *Client::createClientContext() {
     return ctx;
 }
 
-Client::Client(string host, int port) : _host(host), _port(port) {}
+Client::Client(){}
 
 Client::~Client() {
     stopWorkerThreads();
@@ -112,7 +112,10 @@ void Client::connectToServer(const string& host, int port) {
 }
 
 void Client::run() {
-    {
+    if (_authenticated) {
+        lock_guard lock(_printMutex);
+        cout << "Dostępne komendy: attach <ue_id> detach <ue_id> status <ue_id> stats reset ping exit" << endl;
+    } else {
         lock_guard lock(_printMutex);
         cout << "Dostępne komendy: connect <host> <port>, login <user> <password>, ping, exit" << endl;
     }
@@ -179,8 +182,27 @@ void Client::updatePendingRequest(models::Message &response) {
 }
 
 void Client::handleCommand(string &command) {
-    ParsedCommand parsed = CommandMapper::parse(command);
+    if (command == "replay") {
+        if (_lastMessage.empty()) {
+            lock_guard lock(_printMutex);
+            cout << "[KLIENT] Brak wiadomości do ponownego wysłania." << endl;
+            return;
+        }
 
+        {
+            lock_guard lock(_sendMutex);
+            _tls->sendData(_lastMessage);
+        }
+
+        {
+            lock_guard lock(_printMutex);
+            cout << "[TEST] Ponownie wysłano stary komunikat: " << _lastMessage << endl;
+        }
+
+        return;
+    }
+
+    ParsedCommand parsed = CommandMapper::parse(command);
     Message message = parsed.message;
 
     if (message._type == MessageType::HELLO) {
@@ -241,6 +263,8 @@ void Client::sendMessage(models::Message &message) {
     pendingRequest.message = message;
     pendingRequest.rawMessage = rawMessage;
     pendingRequest.lastSentAt = time(nullptr);
+
+    _lastMessage = rawMessage;
 
     {
         lock_guard lock(_pendingMutex);
@@ -349,7 +373,7 @@ void Client::receiverLoop() {
 
             handleResponse(rawResponse);
 
-        } catch (const std::exception& e) {
+        } catch (const exception& e) {
             if (_isReceiverRunning) {
                 {
                     lock_guard lock(_printMutex);
@@ -431,11 +455,7 @@ void Client::timeoutLoop() {
     }
 }
 
-void Client::handleRequestTimeout(
-    std::map<std::string, PendingRequest>::iterator &it,
-    time_t now,
-    const std::string& timeoutType
-) {
+void Client::handleRequestTimeout(map<string, PendingRequest>::iterator &it, time_t now, const string& timeoutType) {
     PendingRequest& pending = it->second;
 
     {
