@@ -579,7 +579,9 @@ sudo apt install build-essential cmake libssl-dev openssl
 
 ## 18. Certyfikaty TLS
 
-Projekt korzysta z certyfikatu i klucza TLS znajdujących się w katalogu:
+Aplikacja wykorzystuje TLS do zabezpieczenia komunikacji między klientem a serwerem. Serwer korzysta z certyfikatu oraz klucza prywatnego, natomiast klient weryfikuje certyfikat serwera na podstawie lokalnego certyfikatu CA.
+
+W katalogu głównym projektu powinien znajdować się katalog:
 
 ```text
 certs/
@@ -588,23 +590,118 @@ certs/
 Wymagane pliki:
 
 ```text
+certs/rootCA.crt
+certs/rootCA.key
+certs/server.crt
+certs/server.key
+certs/domain.ext
+```
+
+Znaczenie plików:
+
+```text
+rootCA.crt   - certyfikat lokalnego urzędu certyfikacji używany przez klienta do weryfikacji serwera
+rootCA.key   - klucz prywatny lokalnego CA, używany tylko do podpisania certyfikatu serwera
+server.crt   - certyfikat serwera używany przez aplikację serwera
+server.key   - klucz prywatny serwera
+domain.ext   - plik rozszerzeń certyfikatu, zawierający m.in. Subject Alternative Name dla localhost/127.0.0.1
+```
+
+Katalog `certs` może być ignorowany przez `.gitignore`, dlatego po pobraniu projektu certyfikaty należy wygenerować lokalnie.
+
+### Generowanie certyfikatów
+
+Z poziomu katalogu głównego projektu wykonaj:
+
+```bash
+mkdir -p certs
+```
+
+Następnie wygeneruj lokalny certyfikat CA:
+
+```bash
+openssl genrsa -out certs/rootCA.key 2048
+
+openssl req -x509 -new -nodes \
+  -key certs/rootCA.key \
+  -sha256 \
+  -days 365 \
+  -out certs/rootCA.crt \
+  -subj "/C=PL/ST=Malopolskie/L=Krakow/O=NCP/OU=Project/CN=NCP-Local-CA"
+```
+
+Utwórz plik rozszerzeń certyfikatu serwera:
+
+```bash
+cat > certs/domain.ext <<EOF
+authorityKeyIdentifier=keyid,issuer
+basicConstraints=CA:FALSE
+keyUsage=digitalSignature, nonRepudiation, keyEncipherment, dataEncipherment
+subjectAltName = @alt_names
+
+[alt_names]
+DNS.1 = localhost
+IP.1 = 127.0.0.1
+EOF
+```
+
+Wygeneruj klucz serwera oraz żądanie podpisania certyfikatu:
+
+```bash
+openssl genrsa -out certs/server.key 2048
+
+openssl req -new \
+  -key certs/server.key \
+  -out certs/server.csr \
+  -subj "/C=PL/ST=Malopolskie/L=Krakow/O=NCP/OU=Server/CN=localhost"
+```
+
+Podpisz certyfikat serwera lokalnym CA:
+
+```bash
+openssl x509 -req \
+  -in certs/server.csr \
+  -CA certs/rootCA.crt \
+  -CAkey certs/rootCA.key \
+  -CAcreateserial \
+  -out certs/server.crt \
+  -days 365 \
+  -sha256 \
+  -extfile certs/domain.ext
+```
+
+Po wygenerowaniu certyfikatów w katalogu `certs` powinny znajdować się co najmniej:
+
+```text
+rootCA.crt
+rootCA.key
+server.crt
+server.key
+domain.ext
+```
+
+Plik `server.csr` oraz `rootCA.srl` mogą pozostać w katalogu jako pliki pomocnicze, ale nie są wymagane do działania aplikacji.
+
+### Użycie certyfikatów w aplikacji
+
+Serwer korzysta z:
+
+```text
 certs/server.crt
 certs/server.key
 ```
 
-Jeżeli katalog `certs` nie istnieje, można go utworzyć i wygenerować testowy certyfikat self-signed:
+Klient korzysta z:
 
-```bash
-mkdir -p certs
-
-openssl req -x509 -newkey rsa:2048 \
-  -keyout certs/server.key \
-  -out certs/server.crt \
-  -days 365 \
-  -nodes
+```text
+certs/rootCA.crt
 ```
 
-Certyfikaty testowe nie muszą być dodawane do repozytorium. Katalog `certs` może być ignorowany przez `.gitignore`.
+Oznacza to, że klient weryfikuje certyfikat serwera na podstawie lokalnego certyfikatu CA. Dzięki temu połączenie TLS zapewnia nie tylko szyfrowanie transmisji, ale również sprawdzenie, czy klient łączy się z serwerem posiadającym certyfikat podpisany przez zaufane lokalne CA.
+
+### Uwaga
+
+Certyfikaty generowane powyższymi poleceniami są certyfikatami testowymi przeznaczonymi do uruchomienia projektu lokalnie. W środowisku produkcyjnym należałoby użyć certyfikatów wystawionych przez zaufany urząd certyfikacji albo odpowiednio zarządzaną infrastrukturę PKI.
 
 ---
 
@@ -902,16 +999,3 @@ operacja nie jest wykonywana drugi raz
 Projekt realizuje główne założenia dokumentacji protokołu NCP oraz dokumentacji aplikacji. Zaimplementowano kompletny przepływ komunikacji klient-serwer, szyfrowaną transmisję TLS, komunikaty JSON, sesję z tokenem, uwierzytelnianie, obsługę operacji administracyjnych, walidację, obsługę błędów, timeouty, retransmisje, duplikaty `message_id`, keep-alive, rate limiting, logowanie diagnostyczne oraz współdzielony stan symulacji UE dla wielu klientów.
 
 Aplikacja pokazuje praktyczne działanie autorskiego protokołu aplikacyjnego i pozwala przetestować najważniejsze scenariusze opisane w dokumentacji.
-
-### 23.1 Ograniczenia wersji demonstracyjnej względem pełnej wersji produkcyjnej
-
-Wersja projektu jest implementacją demonstracyjną przygotowaną na potrzeby projektu zaliczeniowego. Większość wymagań dokumentacji została zaimplementowana, natomiast kilka elementów ma charakter uproszczony:
-
-* Klient korzysta z TLS, ale w wersji MVP pełna weryfikacja certyfikatu serwera po stronie klienta jest uproszczona. W środowisku produkcyjnym należałoby skonfigurować `SSL_VERIFY_PEER` oraz zaufany certyfikat CA.
-* Dane logowania są uproszczone i przechowywane w kodzie jako konto testowe `admin/admin`. W wersji produkcyjnej hasła powinny być przechowywane jako bezpieczne skróty, np. z użyciem dedykowanych mechanizmów haszowania haseł.
-* Komunikaty JSON są przesyłane bez osobnego, rozbudowanego mechanizmu ramkowania typu length-prefix. Implementacja demonstracyjna zakłada, że pojedynczy komunikat JSON jest odbierany w całości w ramach pojedynczego odczytu TLS.
-* Mechanizm rate limitingu jest prosty i działa w pamięci w ramach sesji. W wersji produkcyjnej należałoby zastosować bardziej rozbudowany mechanizm limitowania i monitorowania nadużyć.
-* Historia obsłużonych `message_id` jest przechowywana w pamięci sesji. W wersji długotrwałej należałoby dodać mechanizm czyszczenia starych wpisów.
-* Logowanie diagnostyczne jest realizowane przez prosty moduł zapisujący dane do pliku i konsoli. W wersji produkcyjnej można rozszerzyć je o poziomy konfiguracji, rotację logów i integrację z zewnętrznym systemem monitoringu.
-
-Powyższe ograniczenia nie blokują działania aplikacji jako demonstracyjnej implementacji protokołu NCP, ale wskazują możliwe kierunki dalszego rozwoju projektu.
